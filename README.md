@@ -3,6 +3,16 @@
 
 ---
 
+Links
+
+- (Im2txt)[https://github.com/HughKu/Im2txt]
+- (NeuralTalk2)[https://github.com/karpathy/neuraltalk2]
+- (Another implementation)[https://github.com/jazzsaxmafia/show_and_tell.tensorflow]
+
+
+---
+
+
 # Plan
 
 1. Implement the CNN-RNN architecture from the "Show and Tell" paper, download the pre-trained weights so save time if possible.
