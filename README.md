@@ -5,9 +5,9 @@
 
 Links
 
-- (Im2txt)[https://github.com/HughKu/Im2txt]
-- (NeuralTalk2)[https://github.com/karpathy/neuraltalk2]
-- (Another implementation)[https://github.com/jazzsaxmafia/show_and_tell.tensorflow]
+- [Im2txt](https://github.com/HughKu/Im2txt)
+- [NeuralTalk2](https://github.com/karpathy/neuraltalk2)
+- [Another implementation](https://github.com/jazzsaxmafia/show_and_tell.tensorflow)
 
 
 ---
