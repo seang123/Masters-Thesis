@@ -10,7 +10,7 @@ Links
 - [Another implementation](https://github.com/jazzsaxmafia/show_and_tell.tensorflow)
 
 - [Caffe Model Zoo](https://github.com/BVLC/caffe/wiki/Model-Zoo#resnets-deep-residual-networks-from-msra-at-imagenet-and-coco-2015)
- - Provides ResNet pre-trained networks that "won the 1st places in: ImageNet classification, ImageNet detection, ImageNet localization, COCO detection, and COCO segmentation", which could be good for the CNN layer. 
+  - Provides ResNet pre-trained networks that "won the 1st places in: ImageNet classification, ImageNet detection, ImageNet localization, COCO detection, and COCO segmentation", which could be good for the CNN layer. 
 
 
 ---
