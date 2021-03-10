@@ -5,18 +5,21 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 
-from tensorflow.python.client import device_lib
-print(device_lib.list_local_devices())
+# from tensorflow.python.client import device_lib
+# print(device_lib.list_local_devices())
 
 
-class CNN():
+# class CNN():
 
-    def __init__():
-        pass
+#     def __init__():
+#         pass
 
 
-class RNN():
+# class RNN():
 
-    def __init__():
-        pass
+#     def __init__():
+#         pass
 
+import nsdloader
+
+print("success")
