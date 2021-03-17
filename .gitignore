@@ -130,3 +130,6 @@ dmypy.json
 
 # Ignore json files
 *.json
+
+# Ignore vim files
+*.vim
