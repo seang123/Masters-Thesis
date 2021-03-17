@@ -5,6 +5,7 @@
 
 from nsd_access import NSDAccess
 import numpy as np
+import json
 
 nsd_loader = NSDAccess("/home/seagie/NSD")
 
@@ -59,4 +60,11 @@ def load_annotations_dict(img_ids: list, key_id = False):
 
     return annot_dict
 
+def dump_json(data: dict, file_name: str ):
+    with open(file_name, 'w') as fp:
+        json.dump(data, fp)
 
+def load_json(file_name: str):
+    with open(file_name, 'r') as fp:
+        data = json.load(fp)
+    return data
