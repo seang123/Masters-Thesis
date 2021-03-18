@@ -133,3 +133,7 @@ dmypy.json
 
 # Ignore vim files
 *.vim
+
+# ignore numpy .npy files
+*.npy
+

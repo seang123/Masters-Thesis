@@ -6,6 +6,8 @@
 from nsd_access import NSDAccess
 import numpy as np
 import json
+from pathlib import Path
+import os
 
 nsd_loader = NSDAccess("/home/seagie/NSD")
 
@@ -68,3 +70,26 @@ def load_json(file_name: str):
     with open(file_name, 'r') as fp:
         data = json.load(fp)
     return data
+
+
+def append_save_weights_npz(data, file_name: str):
+    """
+    appends the given data to a .npz file. 
+
+    Args:
+        data - np array
+        file_name - file name/path without .npz 
+    """
+    p = Path(file_name + '.npy')
+    with p.open('ab') as f:
+        np.save(f, data)
+
+
+def read_npz(file_name: str):
+    p = Path(file_name + '.npy')
+    with p.open('rb') as f:
+        fsz = os.fstat(f.fileno()).st_size
+        out = np.load(f)
+        while f.tell() < fsz:
+            out = np.vstack((out, np.load(f)))
+    return out
