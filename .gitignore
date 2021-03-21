@@ -137,3 +137,5 @@ dmypy.json
 # ignore numpy .npy files
 *.npy
 
+# ignore hdf5 files
+*.hdf5

@@ -19,6 +19,7 @@ import string
 import time
 import tqdm
 from itertools import zip_longest
+import h5py
 
 # INFO messages NOT printed | DEBUG - everything printed | WARNINGS-ERRORS 
 tf.get_logger().setLevel('INFO')
@@ -75,22 +76,23 @@ training_img_idx = list(range(0,73000))  # training img indicies
 # image_dataset = image_dataset.map(load_image, num_parallel_calls=2).batch(16)
 
 
+batch_size = 5
+with h5py.File("feature_weights.hdf5", "w") as f:
+    f.create_dataset('features', data=np.zeros((batch_size,64,2048)), compression="gzip", chunks=True, maxshape=(None,None,None,), dtype=np.float32)
+
 # each batch ~530kb | 10 batches is 5mb | so store 10 in memory and then write append them to the save file
-batch_size = 5 
-batch_store = []
 
-for i in tqdm.tqdm(range(0, len(training_img_idx), batch_size)):
-    indicies = training_img_idx[i:i+batch_size] 
-    imgs = load_image(indicies)
-    batch_features = image_features_extract_model(imgs)
-    batch_features = tf.reshape(batch_features, (batch_features.shape[0], -1, batch_features.shape[3])) # (batch_size, 64, 2080) <32float>
-    #print("-----------------------------------")
-    #print("BATCH FEATURES SHAPE: ", batch_features.shape, batch_features.dtype)
+with h5py.File("feature_weights.hdf5", 'a') as f:
+    for i in tqdm.tqdm(range(0, len(training_img_idx), batch_size)):
+        indicies = training_img_idx[i:i+batch_size] 
+        imgs = load_image(indicies)
+        batch_features = image_features_extract_model(imgs)
+        batch_features = tf.reshape(batch_features, (batch_features.shape[0], -1, batch_features.shape[3])) # (batch_size, 64, 2080) <32float>
+        #print("-----------------------------------")
+        #print("BATCH FEATURES SHAPE: ", batch_features.shape, batch_features.dtype)
 
-    
-    utils.append_save_weights_npz(batch_features, "feature_weights")
-
-        
+        f['features'].resize((f['features'].shape[0] + batch_features.shape[0]), axis = 0)
+        f['features'][-batch_features.shape[0]:] = batch_features
 
 
 
