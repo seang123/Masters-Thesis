@@ -22,9 +22,9 @@ import h5py
 #print(weights.dtype)
 
 
-orig_data = np.random.uniform(0, 1, (1, 64, 10))
+#orig_data = np.random.uniform(0, 1, (1, 64, 10))
 
-new_data = np.random.uniform(0, 1, (1, 64, 10))
+#new_data = np.random.uniform(0, 1, (1, 64, 10))
 
 #with h5py.File("save_test.hdf5", "w") as f:
 #    f.create_dataset('features', data=orig_data, compression="gzip", chunks=True, maxshape=(None,None,None,), dtype=np.float32)
@@ -42,11 +42,4 @@ print("Reading file")
 f = h5py.File('img_features.hdf5', 'r')
 
 print(f['features'].shape)
-
-
-d = f['features']
-
-x = d[0:5]
-
-print(np.sum(x, (0,1,2)))
 

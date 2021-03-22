@@ -31,6 +31,6 @@ print(f"split: {time.time() - tic}")
 # get unique words
 unique = set(lss) 
 
-print(f"there are {len(ls)} captions")
-print(f"there are {len(lss)} words")
-print(f"there are {len(unique)} unique words")
+print(f"there are {len(ls):,} captions")
+print(f"there are {len(lss):,} words")
+print(f"there are {len(unique):,} unique words")
