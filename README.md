@@ -23,3 +23,11 @@ Links
  - convert it to work with the fMRI data
 2. Add an attention mechanism
 3. Use a transformer network
+
+
+# TODO:
+
+## CNN-RNN network
+
+1. Create separate test set, to check for overfitting
+
