@@ -139,3 +139,11 @@ dmypy.json
 
 # ignore hdf5 files
 *.hdf5
+
+# ignore checkpoint
+checkpoints/
+
+# logs
+logs/
+
+figures/

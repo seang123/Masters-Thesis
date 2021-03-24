@@ -20,19 +20,26 @@ import h5py
 
 # CNN-encoder
 # takes the CNN features and passes them through a Fully-connected layer
-class CNN_encoder(tf.keras.Model):
+class CNN_Encoder(tf.keras.Model):
 
     def __init__(self, embedding_dim):
+        """
+        in_shape - tuple representing the input shape
+        """
+        super(CNN_Encoder, self).__init__()
+        # shape after fc == (batch_size, 64, embedding_dim)
         self.fc = tf.keras.layers.Dense(embedding_dim)
 
     def call(self, x):
-        x = tf.nn.relu(self.fc(x))
+        x = self.fc(x)
+        x = tf.nn.relu(x)
         return x
+
 
 
 # RNN-decoder
 # Recurrent Network (currently without attention) 
-class RNN_decoder(tf.keras.Model):
+class RNN_Decoder(tf.keras.Model):
 
     def __init__(self, embedding_dim, units, vocab_size):
         super(RNN_Decoder, self).__init__()
@@ -47,13 +54,17 @@ class RNN_decoder(tf.keras.Model):
         self.fc1 = tf.keras.layers.Dense(self.units)
         self.fc2 = tf.keras.layers.Dense(vocab_size)
 
-    def call(self, x, features, hidden):
+    def call(self, x, features, hidden = None): # Set hidden default = None as we aren't using attention atm
         # x        - a caption (or batch of captions)
         # features - the image features
         # hidden   - previous recurrent state
 
         # x shape after passing through embedding == (batch_size, 1, embedding_dim)
         x = self.embedding(x)
+
+        # concatenate the image features into x
+        features = tf.reduce_sum(features, axis=1)
+        x = tf.concat([tf.expand_dims(features, 1), x], axis=-1)
         
         # passing the concatenated vector to the GRU
         output, state = self.gru(x)
@@ -68,3 +79,6 @@ class RNN_decoder(tf.keras.Model):
         x = self.fc2(x)
 
         return x, state
+
+    def reset_state(self, batch_size):
+        return tf.zeros((batch_size, self.units))
