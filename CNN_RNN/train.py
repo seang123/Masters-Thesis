@@ -113,10 +113,10 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 #
 ## Training Parameters
 #
-BATCH_SIZE = 128 # was 64
+BATCH_SIZE = 5 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256
-units = 512
+units = 256 # was 512
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
@@ -247,33 +247,34 @@ def train_step(img_tensor, target):
 
     return loss, total_loss
 
-def evaluate(image_key):    
+@tf.function # TODO: convert this function to a tf.function using tf.tensorarray
+def evaluate(image_tensor, captions):    
     """
     Evalutation function for a single image, and target sentence
 
     TODO 
     """
-    hidden = decoder.reset_state(batch_size = 1)
+    hidden = decoder.reset_state(batch_size = captions.shape[0])
 
-    image = hdf_img_features[image_key]
-    # image = tf.reshape(image, (image.shape[0], -1, image.shape[3]))
+    features = encoder(image_tensor)
+ 
+    dec_input = tf.expand_dims([tokenizer.word_index['<start>']] * captions.shape[0], 1)
     
-    features = encoder(image)
+    result = tf.TensorArray(dtype=tf.int32, size=0, dynamic_size=True)
 
-    dec_input = tf.expand_dims([tokenizer.word_index['<start>']], 0)
-    result = []
-for i in range(max_length):
+    for i in range(max_length):
         predictions, hidden = decoder(dec_input, features, hidden)
 
+        print("pred:", type(predictions))
         predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
-        result.append(tokenizer.index_word[predicted_id])
+        result.write(i, predicted_id)
 
-        if tokenizer.index_word[predicted_id] == '<end>':
-            break
+        #if tokenizer.index_word[predicted_id] == '<end>':
+        #    break
 
-        dec_input = tf.expand_dims([predicted_id], 0)
+        dec_input = tf.expand_dims([predicted_id], 1)
 
-    return result
+    return dec_input
 
 
 # Loggers for Tensorboard
@@ -289,13 +290,14 @@ features_file = h5py.File("img_features.hdf5", "r")
 hdf_img_features = features_file['features'] # (73k, 64, 2048)
 
 print("###################")
-print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | num steps: {num_steps} ")
+print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} ")
 print("###################")
 
+save_checkpoints = False
 EPOCHS = 3
 print(f"> Training for {EPOCHS} epochs!")
 
-with tf.device('/gpu:1'):
+with tf.device('/gpu:0'):
     for epoch in range(start_epoch, EPOCHS):
         #with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
         start = time.time()
@@ -315,27 +317,39 @@ with tf.device('/gpu:1'):
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch} | Loss {(batch_loss.numpy() / int(target.shape[1])):.4f}")
             
+            break
 
         # storing the epoch end loss value to plot later
         #loss_plot.append(total_loss / num_steps)
         
         #if epoch % 5 == 0:
-        ckpt_manager.save()
+        if save_checkpoints:
+            ckpt_manager.save()
 
         # Evaluate network
         bleu_scores = []
-        for i in tqdm.tqdm(range(0, len(img_name_val))):
-            # loop through val set
+        #for i in tqdm.tqdm(range(0, len(img_name_val))):
+        #    # loop through val set
 
-            image = [int(img_name_val[i])] # img idx
-            #real_caption = ' '.join([tokenizer.index_word[j] for j in cap_val[i] if j not in [0]])
-            prediction = evaluate(image)
-            reference = [tokenizer.index_word[j] for j in cap_val[i] if j not in [0]]
+        #    image = [int(img_name_val[i])] # img idx
+        #    #real_caption = ' '.join([tokenizer.index_word[j] for j in cap_val[i] if j not in [0]])
+        #    prediction = evaluate(image)
+        #    print(prediction)
+        #    print(type(prediction))
+        #    sys.exit(0)
+        #    reference = [tokenizer.index_word[j] for j in cap_val[i] if j not in [0]]
             
             # Compute BlEU score
-            score = sentence_bleu(reference, prediction, smoothing_function = SmoothingFunction().method2)
+        #    score = sentence_bleu(reference, prediction, smoothing_function = SmoothingFunction().method2)
 
-            bleu_scores.append(score)
+        #    bleu_scores.append(score)
+
+        for (batch, (img_tensor, reference)) in enumerate(dataset_val):
+            prediction = evaluate(img_tensor, reference)
+            print("----eval out----") 
+            print(type(prediction))
+            print(prediction.shape)
+            sys.exit(0)
 
         loss_plot_test.append(bleu_scores)
         test_loss(bleu_scores) # for tensorboard -> avg. of all bleu for this epoch
