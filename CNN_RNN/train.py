@@ -147,7 +147,7 @@ dataset = dataset.map(lambda item1, item2: tf.numpy_function(
 # Shuffle and batch
 # autotune is returning -1 
 dataset = dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
-dataset = dataset.prefetch(buffer_size=5) # tf.data.experimental.AUTOTUNE
+dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE) # tf.data.experimental.AUTOTUNE
 
 ## Create evaluation dataset
 dataset_val = tf.data.Dataset.from_tensor_slices((img_name_val, cap_val))
@@ -262,8 +262,7 @@ def evaluate(image_key):
 
     dec_input = tf.expand_dims([tokenizer.word_index['<start>']], 0)
     result = []
-
-    for i in range(max_length):
+for i in range(max_length):
         predictions, hidden = decoder(dec_input, features, hidden)
 
         predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
