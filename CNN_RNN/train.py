@@ -162,6 +162,7 @@ dataset_val = dataset_val.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 print(f"tf.dataset created")
 
 #print("building models...")
+
 ## Init the Encoder-Decoder
 encoder = CNN_Encoder(embedding_dim)
 decoder = RNN_Decoder(embedding_dim, units, vocab_size)
