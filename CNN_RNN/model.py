@@ -61,6 +61,10 @@ class RNN_Decoder(tf.keras.Model):
 
         # x shape after passing through embedding == (batch_size, 1, embedding_dim)
         x = self.embedding(x)
+
+        # concatenate the image features into x
+        features = tf.reduce_sum(features, axis=1)
+        x = tf.concat([tf.expand_dims(features, 1), x], axis=-1)
         
         # passing the concatenated vector to the GRU
         output, state = self.gru(x)

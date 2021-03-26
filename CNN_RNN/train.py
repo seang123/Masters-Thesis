@@ -24,6 +24,7 @@ import random
 import collections
 from model import CNN_Encoder, RNN_Decoder
 import datetime
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 
 # Allow memory growth on GPU devices | Otherwise InceptionV3 won't run due to insufficient memory 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -47,7 +48,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 5000
+top_k = 10000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -112,7 +113,7 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 #
 ## Training Parameters
 #
-BATCH_SIZE = 64 # was 64
+BATCH_SIZE = 128 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256
 units = 512
@@ -122,11 +123,6 @@ num_steps = len(img_name_train) // BATCH_SIZE
 # These two variables represent that vector shape
 features_shape = 2048
 attention_features_shape = 64
-
-print("###################")
-print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | num steps: {num_steps} ")
-print("###################")
-
 
 def map_func(img_idx, cap):
     """
@@ -138,7 +134,7 @@ def map_func(img_idx, cap):
     img_tensor = hdf_img_features[img_idx]
     return img_tensor, cap
 
-print("initialising tf.dataset")
+print("initialising tf.dataset...")
 
 # create tf.dataset
 dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
@@ -149,20 +145,32 @@ dataset = dataset.map(lambda item1, item2: tf.numpy_function(
           num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
 # Shuffle and batch
+# autotune is returning -1 
 dataset = dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
-dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+dataset = dataset.prefetch(buffer_size=5) # tf.data.experimental.AUTOTUNE
+
+## Create evaluation dataset
+dataset_val = tf.data.Dataset.from_tensor_slices((img_name_val, cap_val))
+dataset_val = dataset_val.map(lambda item1, item2: tf.numpy_function(
+          map_func, [item1, item2], [tf.float32, tf.int32]),
+          num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+dataset_val = dataset_val.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+dataset_val = dataset_val.prefetch(buffer_size=tf.data.experimental.AUTOTUNE) 
+
 
 print(f"tf.dataset created")
 
-print("building models...")
+#print("building models...")
+
 ## Init the Encoder-Decoder
 encoder = CNN_Encoder(embedding_dim)
 decoder = RNN_Decoder(embedding_dim, units, vocab_size)
 
 # need to specifiy input shape to print summary here
-encoder.build(input_shape=(BATCH_SIZE, attention_features_shape, features_shape))
+#encoder.build(input_shape=(BATCH_SIZE, attention_features_shape, features_shape))
 # decoder.build(input_shape=(vocab_size, embedding_dim)) # Cannot build model because it takes another input in its call 
-encoder.summary()
+#encoder.summary()
 
 ## Optimizer
 optimizer = tf.keras.optimizers.Adam()
@@ -179,9 +187,11 @@ def loss_function(real, pred):
 
     return tf.reduce_mean(loss_)
 
+# Current time string
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 ## Checkpoints handler
-checkpoint_path = "./checkpoints/train"
+checkpoint_path = f"./checkpoints/train"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                            decoder=decoder,
                            optimizer = optimizer)
@@ -195,7 +205,9 @@ if ckpt_manager.latest_checkpoint:
 
 ## Store training information
 loss_plot = []
+loss_plot_test = []
 train_loss = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
+test_loss = tf.keras.metrics.Mean('test_loss', dtype=tf.float32)
 
 @tf.function
 def train_step(img_tensor, target):
@@ -227,8 +239,6 @@ def train_step(img_tensor, target):
 
     total_loss = (loss / int(target.shape[1]))
 
-    train_loss(total_loss) # store for tensorboard display
-
     trainable_variables = encoder.trainable_variables + decoder.trainable_variables
 
     gradients = tape.gradient(loss, trainable_variables)
@@ -237,55 +247,130 @@ def train_step(img_tensor, target):
 
     return loss, total_loss
 
+def evaluate(image_key):    
+    """
+    Evalutation function for a single image, and target sentence
+
+    TODO 
+    """
+    hidden = decoder.reset_state(batch_size = 1)
+
+    image = hdf_img_features[image_key]
+    # image = tf.reshape(image, (image.shape[0], -1, image.shape[3]))
+    
+    features = encoder(image)
+
+    dec_input = tf.expand_dims([tokenizer.word_index['<start>']], 0)
+    result = []
+
+    for i in range(max_length):
+        predictions, hidden = decoder(dec_input, features, hidden)
+
+        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
+        result.append(tokenizer.index_word[predicted_id])
+
+        if tokenizer.index_word[predicted_id] == '<end>':
+            break
+
+        dec_input = tf.expand_dims([predicted_id], 0)
+
+    return result
+
+
 # Loggers for Tensorboard
-current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
-## Start a profiler server before your model runs.
-tf.profiler.experimental.server.start(6009)
-# (Model code goes here).
-#  Send a request to the profiler server to collect a trace of your model.
+test_log_dir = 'logs/' + current_time + '/test'
+test_summary_writer = tf.summary.create_file_writer(test_log_dir)
+
 
 ## Prior to training, load the image features from the hdf5 file
 features_file = h5py.File("img_features.hdf5", "r")
-hdf_img_features = features_file['features']
+hdf_img_features = features_file['features'] # (73k, 64, 2048)
 
-EPOCHS = 2 
+print("###################")
+print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | num steps: {num_steps} ")
+print("###################")
+
+EPOCHS = 3
 print(f"> Training for {EPOCHS} epochs!")
 
 with tf.device('/gpu:1'):
     for epoch in range(start_epoch, EPOCHS):
-        with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
-            start = time.time()
-            total_loss = 0
+        #with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
+        start = time.time()
+        total_loss = 0
     
-            for (batch, (img_tensor, target)) in enumerate(dataset):
-                batch_loss, t_loss = train_step(img_tensor, target)
-                total_loss += t_loss
+        for (batch, (img_tensor, target)) in enumerate(dataset):
+            batch_loss, t_loss = train_step(img_tensor, target)
+            total_loss += t_loss
+                
+            train_loss(t_loss) # store for tensorboard display
+            loss_plot.append(t_loss) # store loss after every batch
         
-                # Record metric
-                with train_summary_writer.as_default():
-                    tf.summary.scalar('loss', train_loss.result(), step=epoch)
-
-                if batch % 100 == 0:
-                    print ('Epoch {} Batch {} Loss {:.4f}'.format(
-                        epoch + 1, batch, batch_loss.numpy() / int(target.shape[1])))
+            # Record metric
+            with train_summary_writer.as_default():
+                tf.summary.scalar('loss', train_loss.result(), step=epoch)
+        
+            if batch % 100 == 0:
+                print(f"Epoch {epoch} | Batch {batch} | Loss {(batch_loss.numpy() / int(target.shape[1])):.4f}")
             
 
-            # storing the epoch end loss value to plot later
-            loss_plot.append(total_loss / num_steps)
+        # storing the epoch end loss value to plot later
+        #loss_plot.append(total_loss / num_steps)
         
-            #if epoch % 5 == 0:
-            ckpt_manager.save()
+        #if epoch % 5 == 0:
+        ckpt_manager.save()
 
-            print ('Epoch {} Loss {:.6f}'.format(epoch + 1,
+        # Evaluate network
+        bleu_scores = []
+        for i in tqdm.tqdm(range(0, len(img_name_val))):
+            # loop through val set
+
+            image = [int(img_name_val[i])] # img idx
+            #real_caption = ' '.join([tokenizer.index_word[j] for j in cap_val[i] if j not in [0]])
+            prediction = evaluate(image)
+            reference = [tokenizer.index_word[j] for j in cap_val[i] if j not in [0]]
+            
+            # Compute BlEU score
+            score = sentence_bleu(reference, prediction, smoothing_function = SmoothingFunction().method2)
+
+            bleu_scores.append(score)
+
+        loss_plot_test.append(bleu_scores)
+        test_loss(bleu_scores) # for tensorboard -> avg. of all bleu for this epoch
+
+
+        print ('Epoch {} Loss {:.6f}'.format(epoch,
                                  total_loss/num_steps))
-            # print ('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
-            print(f"Time taken for epoch {epoch+1} - {time.time()-start} sec\n")
+        print(f"Time taken for epoch {epoch} - {time.time()-start} sec\n")
 
+loss_plot = np.array(loss_plot)
+loss_plot_test = np.array(loss_plot_test)
 
-tf.profiler.experimental.client.trace('grpc://localhost:6009','gs://your_tb_logdir', 2000)
+print("saving training data...")
+with open('loss_data.npy', 'wb') as f:
+    np.savez(f, x=loss_plot, y=loss_plot_test)
+
+#fig = plt.figure()
+#plt.plot(loss_plot)
+#plt.xlabel('Epochs')
+#plt.ylabel('Loss')
+#plt.title('Loss Plot')
+#plt.savefig(f'./figures/{current_time}_loss_plot.png')
+#plt.close(fig)
+
+#fig = plt.figure()
+#plt.plot(loss_plot_test)
+#plt.xlabel('Epochs')
+#plt.ylabel('Loss')
+#plt.title('Test loss Plot')
+#plt.savefig(f'./figures/{current_time}_test_loss_plot.png')
+#plt.close(fig)
+
+#encoder.summary()
+#decoder.summary()
 
 print("## Training Complete. ##")
