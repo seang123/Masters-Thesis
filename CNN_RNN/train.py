@@ -48,7 +48,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 10000
+top_k = 5000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -113,10 +113,10 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 #
 ## Training Parameters
 #
-BATCH_SIZE = 5 # was 64
+BATCH_SIZE = 32 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
-embedding_dim = 256
-units = 256 # was 512
+embedding_dim = 256 # was 256
+units = 128 # was 512
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
@@ -259,22 +259,25 @@ def evaluate(image_tensor, captions):
     features = encoder(image_tensor)
  
     dec_input = tf.expand_dims([tokenizer.word_index['<start>']] * captions.shape[0], 1)
+
+    print("-------Evaluate--------")
+    print("features:", features.shape) # (32, 64, 256)
+    print("dec_input:", dec_input.shape) # (32, 1)
+    print("hidden:", hidden.shape) # (32, 256)
     
     result = tf.TensorArray(dtype=tf.int32, size=0, dynamic_size=True)
 
     for i in range(max_length):
-        predictions, hidden = decoder(dec_input, features, hidden)
+        predictions, hidden = decoder(dec_input, features, hidden, training=False) # prediction: (32, 5001)
 
-        print("pred:", type(predictions))
-        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
-        result.write(i, predicted_id)
+        # predicted_id = tf.random.categorical(predictions, 1, dtype = tf.int32)[0][0]#.numpy()
+        predicted_id = tf.random.categorical(predictions, 1, dtype = tf.int32)
+        result = result.write(i, predicted_id)
 
-        #if tokenizer.index_word[predicted_id] == '<end>':
-        #    break
+        #dec_input = tf.expand_dims([predicted_id], 1)
+        dec_input = predicted_id
 
-        dec_input = tf.expand_dims([predicted_id], 1)
-
-    return dec_input
+    return result.stack() # returns (260,32,1)
 
 
 # Loggers for Tensorboard
@@ -346,9 +349,11 @@ with tf.device('/gpu:0'):
 
         for (batch, (img_tensor, reference)) in enumerate(dataset_val):
             prediction = evaluate(img_tensor, reference)
-            print("----eval out----") 
             print(type(prediction))
             print(prediction.shape)
+            #print(prediction.numpy())
+            temp = prediction.unstack()
+            print(temp.shape)
             sys.exit(0)
 
         loss_plot_test.append(bleu_scores)

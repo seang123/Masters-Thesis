@@ -54,7 +54,7 @@ class RNN_Decoder(tf.keras.Model):
         self.fc1 = tf.keras.layers.Dense(self.units)
         self.fc2 = tf.keras.layers.Dense(vocab_size)
 
-    def call(self, x, features, hidden = None): # Set hidden default = None as we aren't using attention atm
+    def call(self, x, features, hidden = None, training = True): # Set hidden default = None as we aren't using attention atm
         # x        - a caption (or batch of captions)
         # features - the image features
         # hidden   - previous recurrent state
@@ -64,6 +64,11 @@ class RNN_Decoder(tf.keras.Model):
 
         # concatenate the image features into x
         features = tf.reduce_sum(features, axis=1)
+
+        #if not training:
+        #    print("features in model:", features.shape)
+        #    print("exp features:", (tf.expand_dims(features,1)).shape)
+        #    print("x:", x.shape)
         x = tf.concat([tf.expand_dims(features, 1), x], axis=-1)
         
         # passing the concatenated vector to the GRU
