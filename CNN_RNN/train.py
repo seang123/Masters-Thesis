@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 from nsd_access import NSDAccess
 import sys, os
 sys.path.append('/home/seagie/NSD/Code/Masters-Thesis/')
+# sys.path.append('C:\\Users\\giess\\OneDrive\\Documents\\University\\Master\\Masters Thesis\\Masters-Thesis')
 import utils
 import time
 import json
@@ -29,7 +30,7 @@ from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 #physcial_devices = tf.config.experimental.list_physical_devices()
 #tf.config.set_visible_devices(physcial_devices[:1], 'CPU')
 
-# Allow memory growth on GPU devices | Otherwise InceptionV3 won't run due to insufficient memory 
+# Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
@@ -41,7 +42,7 @@ annt_dict = utils.load_json("../modified_annotations_dictionary.json")
 train_captions = []
 
 # Put all captions into a single list
-for i in range(0, 73000):
+for i in range(0, 5000):
     train_captions.extend(annt_dict[str(i)])
 
 def max_length(ls):
@@ -51,7 +52,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 15000
+top_k = 5000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -253,9 +254,7 @@ def train_step(img_tensor, target):
 @tf.function
 def evaluate(image_tensor, captions):    
     """
-    Evalutation function for a single image, and target sentence
-
-    TODO 
+    Evalutation function for a single image, and target sentence 
     """
     hidden = decoder.reset_state(batch_size = captions.shape[0])
 
@@ -320,7 +319,7 @@ test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
 
 ## Prior to training, load the image features from the hdf5 file
-features_file = h5py.File("img_features.hdf5", "r")
+features_file = h5py.File("img_features_small.hdf5", "r")
 hdf_img_features = features_file['features'] # (73k, 64, 2048)
 
 print("###################")
@@ -331,10 +330,10 @@ print("###################")
 end_token = tokenizer.word_index['<end>']
 
 save_checkpoints = True
-EPOCHS = 5
+EPOCHS = 1
 print(f"> Training for {EPOCHS}({start_epoch}) epochs!")
 
-with tf.device('/cpu'): # /gpu:0 
+with tf.device('/gpu:0'): # /gpu:0 
     for epoch in range(start_epoch, EPOCHS):
         #with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
         start = time.time()
