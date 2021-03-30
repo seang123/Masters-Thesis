@@ -43,3 +43,9 @@ f = h5py.File('img_features.hdf5', 'r')
 
 print(f['features'].shape)
 
+## Create a small datasubset
+
+#data_subset = f['features'][0:5000,:,:]
+#print(data_subset.shape)
+#with h5py.File("img_features_small.hdf5", "w") as g:
+#    g.create_dataset('features', data = data_subset, dtype=np.float32)

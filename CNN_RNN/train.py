@@ -26,6 +26,9 @@ from model import CNN_Encoder, RNN_Decoder
 import datetime
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 
+#physcial_devices = tf.config.experimental.list_physical_devices()
+#tf.config.set_visible_devices(physcial_devices[:1], 'CPU')
+
 # Allow memory growth on GPU devices | Otherwise InceptionV3 won't run due to insufficient memory 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -48,7 +51,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 5000
+top_k = 15000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -113,10 +116,10 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 #
 ## Training Parameters
 #
-BATCH_SIZE = 32 # was 64
+BATCH_SIZE = 64 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256 # was 256
-units = 128 # was 512
+units = 512 # was 512
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
@@ -247,7 +250,7 @@ def train_step(img_tensor, target):
 
     return loss, total_loss
 
-@tf.function # TODO: convert this function to a tf.function using tf.tensorarray
+@tf.function
 def evaluate(image_tensor, captions):    
     """
     Evalutation function for a single image, and target sentence
@@ -280,6 +283,34 @@ def evaluate(image_tensor, captions):
     return result.stack() # returns (260,32,1)
 
 
+def bleu_score(predictions, target):
+    """
+    predictions: index numpy array: (260, 32)
+    reference  : target sentence  : (32, 260) 
+    For each sentence, if <end> token is present cut it off there. Otherwise just create a list of words of the 
+    prediction which can be compared to the targets
+    """
+    score = 0
+
+    for i in range(0, predictions.shape[1]):
+        sentence_idx = predictions[:,i]
+
+        end_idx = np.where(sentence_idx == end_token)[0]
+        if len(end_idx) != 0: # if <end> token is generated then remove(pad to 0) everything after it
+            sentence_idx[end_idx[0]+1:] = 0
+
+        sentence_words = [tokenizer.index_word[j] for j in sentence_idx if j not in [0]]
+
+        reference_words = [tokenizer.index_word[j] for j in target[i, :] if j not in [0]]
+    
+        score += sentence_bleu(reference[i], sentence_words, smoothing_function = SmoothingFunction().method2)
+
+    # return total, and averaged bleu score for the batch
+    return (score/predictions.shape[1]), score
+
+
+
+
 # Loggers for Tensorboard
 train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer(train_log_dir)
@@ -296,11 +327,14 @@ print("###################")
 print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} ")
 print("###################")
 
-save_checkpoints = False
-EPOCHS = 3
-print(f"> Training for {EPOCHS} epochs!")
+# end token
+end_token = tokenizer.word_index['<end>']
 
-with tf.device('/gpu:0'):
+save_checkpoints = True
+EPOCHS = 5
+print(f"> Training for {EPOCHS}({start_epoch}) epochs!")
+
+with tf.device('/cpu'): # /gpu:0 
     for epoch in range(start_epoch, EPOCHS):
         #with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
         start = time.time()
@@ -320,7 +354,6 @@ with tf.device('/gpu:0'):
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch} | Loss {(batch_loss.numpy() / int(target.shape[1])):.4f}")
             
-            break
 
         # storing the epoch end loss value to plot later
         #loss_plot.append(total_loss / num_steps)
@@ -331,39 +364,22 @@ with tf.device('/gpu:0'):
 
         # Evaluate network
         bleu_scores = []
-        #for i in tqdm.tqdm(range(0, len(img_name_val))):
-        #    # loop through val set
-
-        #    image = [int(img_name_val[i])] # img idx
-        #    #real_caption = ' '.join([tokenizer.index_word[j] for j in cap_val[i] if j not in [0]])
-        #    prediction = evaluate(image)
-        #    print(prediction)
-        #    print(type(prediction))
-        #    sys.exit(0)
-        #    reference = [tokenizer.index_word[j] for j in cap_val[i] if j not in [0]]
-            
-            # Compute BlEU score
-        #    score = sentence_bleu(reference, prediction, smoothing_function = SmoothingFunction().method2)
-
-        #    bleu_scores.append(score)
-
         for (batch, (img_tensor, reference)) in enumerate(dataset_val):
-            prediction = evaluate(img_tensor, reference)
-            print(type(prediction))
-            print(prediction.shape)
-            #print(prediction.numpy())
-            temp = prediction.unstack()
-            print(temp.shape)
-            sys.exit(0)
+            prediction = evaluate(img_tensor, reference).numpy().squeeze() # out: (260, 32) max_length*batch_size
+            
+            batch_avg_score, _ = bleu_score(prediction, reference)
+
+            bleu_scores.append(batch_avg_score)
 
         loss_plot_test.append(bleu_scores)
-        test_loss(bleu_scores) # for tensorboard -> avg. of all bleu for this epoch
+        test_loss(bleu_scores)
 
 
         print ('Epoch {} Loss {:.6f}'.format(epoch,
                                  total_loss/num_steps))
 
         print(f"Time taken for epoch {epoch} - {time.time()-start} sec\n")
+
 
 loss_plot = np.array(loss_plot)
 loss_plot_test = np.array(loss_plot_test)
