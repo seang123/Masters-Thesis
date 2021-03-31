@@ -26,14 +26,15 @@ import collections
 from model import CNN_Encoder, RNN_Decoder
 import datetime
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from contextlib import redirect_stdout 
 
 #physcial_devices = tf.config.experimental.list_physical_devices()
 #tf.config.set_visible_devices(physcial_devices[:1], 'CPU')
 
 # Allow memory growth on GPU devices 
-physical_devices = tf.config.experimental.list_physical_devices('GPU')
-for i in range(0, len(physical_devices)):
-    tf.config.experimental.set_memory_growth(physical_devices[i], True)
+#physical_devices = tf.config.experimental.list_physical_devices('GPU')
+#for i in range(0, len(physical_devices)):
+#    tf.config.experimental.set_memory_growth(physical_devices[i], True)
 
 print("Loading annotations data...")
 # Load the annotations from json
@@ -41,8 +42,9 @@ annt_dict = utils.load_json("../modified_annotations_dictionary.json")
 
 train_captions = []
 
+nr_training_samples = 73000
 # Put all captions into a single list
-for i in range(0, 5000):
+for i in range(0, nr_training_samples):
     train_captions.extend(annt_dict[str(i)])
 
 def max_length(ls):
@@ -52,7 +54,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 5000
+top_k = 15000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -92,7 +94,7 @@ img_keys = list(img_to_cap_vector.keys())
 random.shuffle(img_keys)
 
 # take 80-20 train-test split
-train_percentage = 0.8
+train_percentage = 0.85
 slice_index = int(len(img_keys)*train_percentage)
 img_name_train_keys, img_name_val_keys = img_keys[:slice_index], img_keys[slice_index:]
 
@@ -117,7 +119,7 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 #
 ## Training Parameters
 #
-BATCH_SIZE = 64 # was 64
+BATCH_SIZE = 128 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256 # was 256
 units = 512 # was 512
@@ -165,16 +167,10 @@ dataset_val = dataset_val.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
 print(f"tf.dataset created")
 
-#print("building models...")
 
 ## Init the Encoder-Decoder
 encoder = CNN_Encoder(embedding_dim)
 decoder = RNN_Decoder(embedding_dim, units, vocab_size)
-
-# need to specifiy input shape to print summary here
-#encoder.build(input_shape=(BATCH_SIZE, attention_features_shape, features_shape))
-# decoder.build(input_shape=(vocab_size, embedding_dim)) # Cannot build model because it takes another input in its call 
-#encoder.summary()
 
 ## Optimizer
 optimizer = tf.keras.optimizers.Adam()
@@ -319,26 +315,30 @@ test_summary_writer = tf.summary.create_file_writer(test_log_dir)
 
 
 ## Prior to training, load the image features from the hdf5 file
-features_file = h5py.File("img_features_small.hdf5", "r")
+features_file = h5py.File("img_features.hdf5", "r")
 hdf_img_features = features_file['features'] # (73k, 64, 2048)
 
+parameter_string = f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} | train set: {len(img_name_train)} | test set: {len(img_name_val)}"
 print("###################")
-print(f"Parameters\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} ")
+print(parameter_string)
 print("###################")
 
 # end token
 end_token = tokenizer.word_index['<end>']
 
 save_checkpoints = True
+run_bleu_tests = True # if True compute BLEU score on test set after epochs
+
 EPOCHS = 1
 print(f"> Training for {EPOCHS}({start_epoch}) epochs!")
 
-with tf.device('/gpu:0'): # /gpu:0 
+with tf.device('/gpu'): # /gpu:0 
     for epoch in range(start_epoch, EPOCHS):
         #with tf.profiler.experimental.Trace('train', step_num=epoch, _r=1):
         start = time.time()
         total_loss = 0
-    
+
+        pre_batch_time = 0
         for (batch, (img_tensor, target)) in enumerate(dataset):
             batch_loss, t_loss = train_step(img_tensor, target)
             total_loss += t_loss
@@ -351,8 +351,8 @@ with tf.device('/gpu:0'): # /gpu:0
                 tf.summary.scalar('loss', train_loss.result(), step=epoch)
         
             if batch % 100 == 0:
-                print(f"Epoch {epoch} | Batch {batch} | Loss {(batch_loss.numpy() / int(target.shape[1])):.4f}")
-            
+                print(f"Epoch {epoch} | Batch {batch} | Loss {(batch_loss.numpy()/int(target.shape[1])):.4f} | {(time.time()-start-pre_batch_time):.2f} sec")
+                pre_batch_time = time.time() - start
 
         # storing the epoch end loss value to plot later
         #loss_plot.append(total_loss / num_steps)
@@ -360,18 +360,19 @@ with tf.device('/gpu:0'): # /gpu:0
         #if epoch % 5 == 0:
         if save_checkpoints:
             ckpt_manager.save()
-
-        # Evaluate network
-        bleu_scores = []
-        for (batch, (img_tensor, reference)) in enumerate(dataset_val):
-            prediction = evaluate(img_tensor, reference).numpy().squeeze() # out: (260, 32) max_length*batch_size
+        
+        if run_bleu_tests:
+            # Evaluate network
+            bleu_scores = []
+            for (batch, (img_tensor, reference)) in enumerate(dataset_val):
+                prediction = evaluate(img_tensor, reference).numpy().squeeze() # out: (260, 32) max_length*batch_size
             
-            batch_avg_score, _ = bleu_score(prediction, reference)
+                batch_avg_score, _ = bleu_score(prediction, reference)
 
-            bleu_scores.append(batch_avg_score)
+                bleu_scores.append(batch_avg_score)
 
-        loss_plot_test.append(bleu_scores)
-        test_loss(bleu_scores)
+            loss_plot_test.append(bleu_scores)
+            test_loss(bleu_scores)
 
 
         print ('Epoch {} Loss {:.6f}'.format(epoch,
@@ -380,30 +381,20 @@ with tf.device('/gpu:0'): # /gpu:0
         print(f"Time taken for epoch {epoch} - {time.time()-start} sec\n")
 
 
-loss_plot = np.array(loss_plot)
-loss_plot_test = np.array(loss_plot_test)
+print("## Training Complete. ##")
+
 
 print("saving training data...")
+loss_plot = np.array(loss_plot)
+loss_plot_test = np.array(loss_plot_test)
 with open('loss_data.npy', 'wb') as f:
     np.savez(f, x=loss_plot, y=loss_plot_test)
 
-#fig = plt.figure()
-#plt.plot(loss_plot)
-#plt.xlabel('Epochs')
-#plt.ylabel('Loss')
-#plt.title('Loss Plot')
-#plt.savefig(f'./figures/{current_time}_loss_plot.png')
-#plt.close(fig)
+## store model summary
+with open('modelsummary.txt', 'w') as f:
+    with redirect_stdout(f):
+        encoder.summary()
+        decoder.summary()
 
-#fig = plt.figure()
-#plt.plot(loss_plot_test)
-#plt.xlabel('Epochs')
-#plt.ylabel('Loss')
-#plt.title('Test loss Plot')
-#plt.savefig(f'./figures/{current_time}_test_loss_plot.png')
-#plt.close(fig)
 
-#encoder.summary()
-#decoder.summary()
-
-print("## Training Complete. ##")
+print("## Done. ##")

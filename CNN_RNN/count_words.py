@@ -4,6 +4,7 @@ sys.path.append('/home/seagie/NSD/Code/Masters-Thesis/')
 import utils
 import re
 import time
+import nltk
 
 #
 # There are 4_535_976 total words (including <start> <end)) 
@@ -25,7 +26,6 @@ lss = []
 for i in range(0, len(ls)):
     lss.extend(re.split(r'\s+', ls[i]))
 
-
 print(f"split: {time.time() - tic}")
 
 # get unique words
@@ -34,3 +34,17 @@ unique = set(lss)
 print(f"there are {len(ls):,} captions")
 print(f"there are {len(lss):,} words")
 print(f"there are {len(unique):,} unique words")
+
+n_common = 20
+print(f"\n{n_common} most common words")
+freq_dist = nltk.FreqDist(lss)
+sorted_freq_dist = {k: v for k, v in sorted(freq_dist.items(), key=lambda item: item[1], reverse=True)}
+
+c = 0
+for i, j in sorted_freq_dist.items():
+    print(i, "--", j)
+    if c > n_common:
+        break
+    c += 1
+
+
