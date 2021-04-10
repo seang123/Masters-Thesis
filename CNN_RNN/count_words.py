@@ -5,6 +5,7 @@ import utils
 import re
 import time
 import nltk
+import msgpack as mp
 
 #
 # There are 4_535_976 total words (including <start> <end)) 
@@ -19,6 +20,7 @@ ls = []
 for i in range(0, 73000):
     ls.extend(annt_dict[str(i)])
 
+
 tic = time.time()
 
 # Split on space for all captions - gives a list of all words 
@@ -26,7 +28,10 @@ lss = []
 for i in range(0, len(ls)):
     lss.extend(re.split(r'\s+', ls[i]))
 
-print(f"split: {time.time() - tic}")
+for i in range(0, len(lss)):
+    lss[i] = lss[i].lower()
+
+print(f"split: {(time.time() - tic):.2f} sec")
 
 # get unique words
 unique = set(lss) 
@@ -40,6 +45,7 @@ print(f"\n{n_common} most common words")
 freq_dist = nltk.FreqDist(lss)
 sorted_freq_dist = {k: v for k, v in sorted(freq_dist.items(), key=lambda item: item[1], reverse=True)}
 
+# print n most common words
 c = 0
 for i, j in sorted_freq_dist.items():
     print(i, "--", j)

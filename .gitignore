@@ -147,3 +147,7 @@ checkpoints/
 logs/
 
 figures/
+
+/CNN_RNN/img_features_binary
+
+/CNN_RNN/*.txt

@@ -35,6 +35,31 @@ class CNN_Encoder(tf.keras.Model):
         x = tf.nn.relu(x)
         return x
 
+class BahdanauAttention(tf.keras.Model):
+    """
+    Attention mechanism
+    """
+    def __init__(self, units):
+        super(BahdanauAttention, self).__init__()
+        self.W1 = tf.keras.layers.Dense(units)
+        self.W2 = tf.keras.layers.Dense(units)
+        self.V  = tf.keras.layers.Dense(1)
+
+    def call(self, features, hidden):
+
+        hidden_with_time_axis = tf.expand_dims(hidden, 1)
+
+        attention_hidden_layer = (tf.nn.tanh(self.W1(features) +
+            self.W2(hidden_with_time_axis)))
+
+        score = self.V(attention_hidden_layer)
+        attention_weights = tf.nn.softmax(score, axis = 1)
+
+        context_vector = attention_weights * features
+        context_vector = tf.reduce_sum(context_vector, axis = 1)
+
+        return context_vector, attention_weights
+
 
 
 # RNN-decoder
@@ -54,10 +79,14 @@ class RNN_Decoder(tf.keras.Model):
         self.fc1 = tf.keras.layers.Dense(self.units)
         self.fc2 = tf.keras.layers.Dense(vocab_size)
 
+        self.attention = BahdanauAttention(self.units)
+
     def call(self, x, features, hidden = None, training = True): # Set hidden default = None as we aren't using attention atm
         # x        - a caption (or batch of captions)
         # features - the image features
         # hidden   - previous recurrent state
+
+        context_vector, attention_weights = self.attention(features, hidden)
 
         # x shape after passing through embedding == (batch_size, 1, embedding_dim)
         x = self.embedding(x)
@@ -69,7 +98,7 @@ class RNN_Decoder(tf.keras.Model):
         #    print("features in model:", features.shape)
         #    print("exp features:", (tf.expand_dims(features,1)).shape)
         #    print("x:", x.shape)
-        x = tf.concat([tf.expand_dims(features, 1), x], axis=-1)
+        x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)
         
         # passing the concatenated vector to the GRU
         output, state = self.gru(x)
@@ -83,7 +112,7 @@ class RNN_Decoder(tf.keras.Model):
         # output shape == (batch_size * max_length, vocab)
         x = self.fc2(x)
 
-        return x, state
+        return x, state, attention_weights
 
     def reset_state(self, batch_size):
         return tf.zeros((batch_size, self.units))

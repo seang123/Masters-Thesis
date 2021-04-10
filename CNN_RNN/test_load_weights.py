@@ -4,7 +4,7 @@ sys.path.append('/home/seagie/NSD/Code/Masters-Thesis/')
 import utils
 import time
 import h5py
-
+import tqdm
 
 #weights = np.load("feature_weights.npy", mmap_mode = 'r')
 
@@ -16,7 +16,10 @@ import h5py
 
 #print("----- memmap -----")
 
-#weights = np.memmap("feature_weights.npy", dtype = np.float32, mode='r')
+shape = 73000, 64, 2048
+weights = np.memmap(filename="img_features_binary", dtype = 'float32', mode='r', order ='C', shape = shape )
+
+print("memory mapped:", weights.shape)
 
 #print(weights.shape)
 #print(weights.dtype)
@@ -41,10 +44,48 @@ print("Reading file")
 
 f = h5py.File('img_features.hdf5', 'r')
 
-print(f['features'].shape)
+print("hdf5:", f['features'].shape)
+
+g = f['features']
+
+a = g[0,0,0:20]
+b = weights[0,0,0:20]
+
+print(a.dtype)
+print(b.dtype)
+
+print(a == b)
+
+N = 64 * 100
+idx = np.random.randint(0, 73000, N)
+
+ls = np.zeros((N, 64, 2048))
+start = time.time()
+for i in range(0, len(idx)): # takes 131 seconds for 10k samples
+    ls[i] = g[idx[i],:,:]
+
+print(f"Hdf: {(time.time() - start):.5f}")
+
+
+ls = np.zeros((N, 64, 2048))
+start = time.time()
+for i in range(0, len(idx)): # takes 0.048 seconds
+    ls[i,:,:] = weights[idx[i],:,:]
+
+print(f"mem: {(time.time() - start):.5f}")
+
+
+## ----- create mem-mapped file -----
+#fp = np.memmap("img_features_binary", dtype='float32', mode='w+', shape=(73000, 64, 2048))
+
+#x = f['features']
+#for i in tqdm.tqdm(range(0, x.shape[0])):
+#    fp[i,:,:] = x[i, :, :]
+
+#print("done.")
+## ---------------------------------
 
 ## Create a small datasubset
-
 #data_subset = f['features'][0:5000,:,:]
 #print(data_subset.shape)
 #with h5py.File("img_features_small.hdf5", "w") as g:
