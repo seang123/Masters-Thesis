@@ -32,6 +32,11 @@ from contextlib import redirect_stdout
 from cython import cython_functions
 import subprocess as sp
 import re
+from check_mem import check_mem
+import logging
+import traceback
+
+# logging.basicConfig(filename='error.log', force=False, level=logging.DEBUG)
 
 
 ## start telegram bot
@@ -43,45 +48,9 @@ bot.autoupdate("train.py started")
 
 ## Check nvidia memory usage, if gpu is free run main 
 
-def check_mem():
-    # run nvidia-smi command and capture output
-    x = sp.run(["nvidia-smi"], capture_output=True)
-    data = x.stdout.decode("utf-8")
-
-    # match mem usage string
-    y = re.findall(r'(\d+MiB)', data)
-
-    # get just the in use memory stat
-    mem_usage = [y[i] for i in range(0, len(y)) if i in [0,2,4]]
-
-    # split number from MiB
-    mem = []
-    for i in mem_usage:
-        mem.append(re.search(r'\d+', i)[0])
-
-    gpu_to_use = 0
-
-    start = time.time()
-    c = 0 
-    mem_blocked = True 
-    while mem_blocked:
-        for i in range(0, len(mem)):
-            if int(mem[i]) < 2000:
-                # run main 
-                mem_blocked = False
-                gpu_to_use = i
-                print(f"running main on gpu {i} at {datetime.datetime.now().strftime('%H:%M:%S -- %d/%m/%Y')}") 
-                gpu_var.update(f"{i} is free at {datetime.datetime.now().strftime('%H:%M:%S -- %d/%m/%Y')} after {(time.time() - start):.2f} seconds of waiting.")
-            else:
-                print(f"waiting 2 more seconds | epoch {c} | total time {(time.time() - start):.2f} sec", end='\r')
-                time.sleep(2)
-
-        c += 1
-
-    return gpu_to_use
 
 #gpu_to_use = check_mem()
-gpu_to_use = 1
+gpu_to_use = 2
 
 #physcial_devices = tf.config.experimental.list_physical_devices('GPU')
 #tf.config.set_visible_devices(physcial_devices[:1], 'GPU')
@@ -122,7 +91,7 @@ def max_length(ls):
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
-top_k = 7500
+top_k = 5000
 
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
@@ -198,7 +167,7 @@ for imgv in img_name_val_keys:
 with open('images_val_keys.txt', 'w') as f, open('images_train_keys.txt', 'w') as g:
    for i in img_name_val_keys:
        f.write("%s\n" % i) 
-   for i in img_name_train_train:
+   for i in img_name_train_keys:
        g.write("%s\n" % i) 
        
 print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0%} - {len(img_name_train)}|{len(img_name_val)} split")
@@ -210,7 +179,7 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 BATCH_SIZE = 64 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256 # was 256
-units = 512 # was 512
+units = 128 # was 512
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
@@ -472,6 +441,8 @@ def main(EPOCHS = 3, gpu = 0):
             print(f"Training done for epoch {epoch}")
             epoch_var.update(f"TRAIN: epoch {epoch} done\ntotal_loss: {total_loss:.4f}\ntotal time: {(time.time()-start):.2f} sec")
 
+            print(f"Epoch {epoch} | Loss {(total_loss/num_steps):.6f} | Total Time {(time.time() - start):.2f} sec\n")
+
             # storing the epoch end loss value to plot later
             #loss_plot.append(total_loss / num_steps)
         
@@ -501,7 +472,6 @@ def main(EPOCHS = 3, gpu = 0):
 
                 epoch_var.update(f"TEST: epoch {epoch} done\navg batch loss: {np.mean(np.array(bleu_scores)):.4f}\navg time: {(time.time()-start-pre_batch_time):.2f} sec")
 
-            print(f"Epoch {epoch} | Loss {(total_loss/num_steps):.6f} | Total Time {(time.time() - start):.2f} sec\n")
 
     epoch_var.update(f"## Training Complete. ##")
     print("## Training Complete. ##")
@@ -528,7 +498,17 @@ def save_model_sum():
 
 
 if __name__ == "__main__":
-    loss_plot, loss_plot_test = main(EPOCHS, gpu = gpu_to_use)
+    try:
+        loss_plot, loss_plot_test = main(EPOCHS, gpu = gpu_to_use)
+    except Exception as e:
+        print(f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
+        print(f"Logging error to error.log")
+        #logging.error('Error at %s', 'division', exc_info=e)
+        #logging.error(traceback.format_exc())
+        with open("error.log", "w") as f:
+            f.write(traceback.format_exc()) 
+
+
     save_loss(loss_plot, loss_plot_test)
     save_model_sum()
     print("terminating bot process")

@@ -16,6 +16,8 @@ import tqdm
 
 #print("----- memmap -----")
 
+print("Reading memap file")
+
 shape = 73000, 64, 2048
 weights = np.memmap(filename="img_features_binary", dtype = 'float32', mode='r', order ='C', shape = shape )
 
@@ -40,7 +42,7 @@ print("memory mapped:", weights.shape)
 
 #print("File created and appended.")
 
-print("Reading file")
+print("Reading hdf5 file")
 
 f = h5py.File('img_features.hdf5', 'r')
 
@@ -48,29 +50,24 @@ print("hdf5:", f['features'].shape)
 
 g = f['features']
 
-a = g[0,0,0:20]
-b = weights[0,0,0:20]
-
-print(a.dtype)
-print(b.dtype)
-
-print(a == b)
-
-N = 64 * 100
+## Randomly load some data
+N = 100
 idx = np.random.randint(0, 73000, N)
 
-ls = np.zeros((N, 64, 2048))
+print(f"Time to load {N} random image features")
+
+ls = np.zeros((64, 2048))
 start = time.time()
 for i in range(0, len(idx)): # takes 131 seconds for 10k samples
-    ls[i] = g[idx[i],:,:]
+    ls += g[idx[i],:,:]
 
 print(f"Hdf: {(time.time() - start):.5f}")
 
 
-ls = np.zeros((N, 64, 2048))
+ls = np.zeros((64, 2048))
 start = time.time()
 for i in range(0, len(idx)): # takes 0.048 seconds
-    ls[i,:,:] = weights[idx[i],:,:]
+    ls += weights[idx[i],:,:]
 
 print(f"mem: {(time.time() - start):.5f}")
 
