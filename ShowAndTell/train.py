@@ -114,38 +114,38 @@ def main(gpu = 2):
     training_loss = []
     training_batch_loss = []
 
-    with tf.device(f'/gpu:{gpu}'):
-        for epoch in range(start_epoch, EPOCHS):
-            start = time.time()
+    for epoch in range(start_epoch, EPOCHS):
+        start = time.time()
 
-            total_loss = 0
-            
-            pre_batch_time = 0
-            for (batch, (img_tensor, target)) in dataset.enumerate():
+        total_loss = 0
+        
+        pre_batch_time = 0
+        for (batch, (img_tensor, target)) in dataset.enumerate():
 
+            with tf.device(f'/gpu:{gpu}'):
                 batch_loss, t_loss = decoder.train_step(img_tensor, target)
-                total_loss += t_loss
+            total_loss += t_loss
 
-                training_loss.append(t_loss)
-                training_batch_loss.append(batch_loss)
+            training_loss.append(t_loss)
+            training_batch_loss.append(batch_loss)
 
-                if batch % 100 == 0:
-                    print(f"Epoch {epoch} | Batch {batch:4} | Loss {(t_loss):.4f} | {(time.time()-start-pre_batch_time):.2f} sec")
-                    pre_batch_time = time.time() - start
+            if batch % 100 == 0:
+                print(f"Epoch {epoch} | Batch {batch:4} | Loss {(t_loss):.4f} | {(time.time()-start-pre_batch_time):.2f} sec")
+                pre_batch_time = time.time() - start
 
-            print(f"Epoch {epoch} done.")
-            epoch_var.update(f"TRAIN: epoch {epoch} done\ntotal_loss: {total_loss:.4f}\ntotal time: {(time.time()-start):.2f} sec")
+        print(f"Epoch {epoch} done.")
+        epoch_var.update(f"TRAIN: epoch {epoch} done\ntotal_loss: {total_loss:.4f}\ntotal time: {(time.time()-start):.2f} sec")
 
 
-            print(f"Epoch {epoch} | Loss {(total_loss/num_steps):.6f} | Total Time {(time.time() - start):.2f} sec\n")
+        print(f"Epoch {epoch} | Loss {(total_loss/num_steps):.6f} | Total Time {(time.time() - start):.2f} sec\n")
 
-            if save_checkpoints:
-                ckpt_manager.save()
+        if save_checkpoints:
+            ckpt_manager.save()
 
-        print("## Training Complete. ##")
-        epoch_var.update("## Training Complete. ##")
+    print("## Training Complete. ##")
+    epoch_var.update("## Training Complete. ##")
 
-        return training_loss, training_batch_loss
+    return training_loss, training_batch_loss
 
 def save_loss(train_loss, train_batch_loss):
     t_loss = np.array(train_loss)
@@ -179,14 +179,18 @@ if __name__ == '__main__':
         print("Caught Keyboard Interrupt")
         print("Saving partial data")
 
+    try:
+        save_model_sum()
+    except Exception as e:
+        print("Failed to store model summary")
+        bot.kill()
 
     try:
         save_loss(train_loss, train_batch_loss)
-        save_model_sum()
         print("Data saved!")
     except Exception as e:
-        print("error saving loss data and model summary") 
-        err_var.update("svaing loss data and model summary")
+        print("error saving loss data") 
+        err_var.update("failt to save loss data")
         bot.kill()
 
     bot.kill()
