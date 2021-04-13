@@ -36,7 +36,7 @@ class Evaluate():
 
         # init the Network
         embedding_dim = 256 # was 256
-        units = 128 # was 512
+        units = 256 # was 512
         self.top_k = 5000
         vocab_size = self.top_k + 1
         self.encoder = CNN_Encoder(embedding_dim)
@@ -149,7 +149,7 @@ class Evaluate():
             from_logits=True, reduction='none')
 
 
-        checkpoint_path = f"./checkpoints/train"
+        checkpoint_path = f"./checkpoints/train_attention"
         ckpt = tf.train.Checkpoint(encoder=self.encoder,
                            decoder=self.decoder,
                            optimizer = optimizer)

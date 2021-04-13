@@ -81,35 +81,25 @@ class RNN_Decoder(tf.keras.Model):
 
         self.attention = BahdanauAttention(self.units)
 
-    def call(self, x, features, hidden = None, training = True): # Set hidden default = None as we aren't using attention atm
-        # x        - a caption (or batch of captions)
-        # features - the image features
-        # hidden   - previous recurrent state
+    def call(self, x, features, hidden = None, training = True):
+        # x        - a caption (or batch of captions) - (64, 1)
+        # features - the image features               - (64, 64, 256)
+        # hidden   - previous recurrent state         - (64, 512)
+        # context_vector                              - (64, 256)
+        # x after embedding                           - (64, 1, 256)
+        # x after concat                              - (64, 1, 512)
 
         context_vector, attention_weights = self.attention(features, hidden)
 
         # x shape after passing through embedding == (batch_size, 1, embedding_dim)
         x = self.embedding(x)
 
-        # concatenate the image features into x ( TODO: this may be causing problems )
-        # features = tf.reduce_sum(features, axis=1)
-
-        #if not training:
-        #    print("features in model:", features.shape)
-        #    print("exp features:", (tf.expand_dims(features,1)).shape)
-        #    print("x:", x.shape)
         x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)
+        #x = tf.concat([tf.expand_dims(tf.reduce_sum(features, 1), 1), x], axis = -1)
 
         # passing the concatenated vector to the GRU
         output, state = self.gru(x)
 
-
-        #print("----------shapes---------")
-        #print("ft   ", features.shape)
-        #print("hd   ", hidden.shape)
-        #print("x    ", x.shape)
-        #print("state", state.shape)
-        
         # shape == (batch_size, max_length, hidden_size)
         x = self.fc1(output)
 

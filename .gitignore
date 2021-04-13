@@ -146,8 +146,12 @@ checkpoints/
 # logs
 logs/
 
+# figures
 figures/
 
+# image features as binary
 /CNN_RNN/img_features_binary
+/ShowAndTell/img_features_vgg16
 
+# model information
 /CNN_RNN/*.txt

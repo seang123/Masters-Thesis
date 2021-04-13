@@ -9,7 +9,8 @@ img_id, generated, actual = ev.gen_prediction()
 
 print("Image id:", img_id)
 
-print(f"Predicted:\n{generated}\nActual:\n{actual}")
+act = '\n'.join(actual)
+print(f"Predicted:\n{' '.join(generated)}\nActual:\n{act}")
 
 ## Save the generated captions
 with open(f"./test_output/captions_{img_id}.txt", "w+") as f:

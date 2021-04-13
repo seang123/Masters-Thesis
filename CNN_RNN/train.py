@@ -41,8 +41,9 @@ import traceback
 
 ## start telegram bot
 bot = tb.Tensorbot()
-gpu_var = bot.register_variable("GPU", "", autoupdate=True)
+gpu_var   = bot.register_variable("GPU", "", autoupdate=True)
 epoch_var = bot.register_variable("", "", autoupdate=True)
+err_var   = bot.register_variable("ERROR:", "", autoupdate=True)
 
 bot.autoupdate("train.py started")
 
@@ -111,6 +112,8 @@ cap_vector = tf.keras.preprocessing.sequence.pad_sequences(train_seqs, maxlen=ma
 
 print("Annotations processed")
 
+
+
 #
 # Split data into train and testing sets
 #
@@ -140,10 +143,11 @@ train_percentage = 0.95
 slice_index = int(len(img_keys)*train_percentage)
 img_name_train_keys, img_name_val_keys = img_keys[:slice_index], img_keys[slice_index:]
 
+
 ## if restarting a run from checkpoint - we want to use the same train/validation sets
-#if os.path.exists('images_val_idx.txt') and os.path.exists('images_train_idx.txt'):
-#    img_name_train_keys = list(set(np.loadtxt('images_train_idx.txt', dtype = np.int32, delimiter='\n')))
-#    img_name_val_keys = list(set(np.loadtxt('images_train_idx.txt', dtype = np.int32, delimiter='\n')))
+if os.path.exists('images_val_idx.txt') and os.path.exists('images_train_idx.txt'):
+    img_name_train_keys = list(np.loadtxt('images_train_idx.txt', dtype = np.int32, delimiter='\n'))
+    img_name_val_keys = list(np.loadtxt('images_train_idx.txt', dtype = np.int32, delimiter='\n'))
 
 
 # training captions
@@ -179,7 +183,7 @@ print(f"Train/Test sets generated. {train_percentage:.0%}|{1-train_percentage:.0
 BATCH_SIZE = 64 # was 64
 BUFFER_SIZE = 1000 # shuffle buffer size 
 embedding_dim = 256 # was 256
-units = 128 # was 512
+units = 512 # was 512
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 # Shape of the vector extracted from InceptionV3 is (64, 2048)
@@ -221,7 +225,7 @@ dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
 # TODO: try adding batch before .map
 dataset = dataset.map(lambda item1, item2: tf.numpy_function(
           map_func, [item1, item2], [tf.float32, tf.int32]),
-          num_parallel_calls=tf.data.experimental.AUTOTUNE)#.cache()
+          num_parallel_calls=tf.data.experimental.AUTOTUNE)#.cache() <- this will cache ~191Gb of data
 
 # Shuffle and batch
 # autotune is returning -1 
@@ -234,8 +238,8 @@ dataset_val = dataset_val.map(lambda item1, item2: tf.numpy_function(
           map_func, [item1, item2], [tf.float32, tf.int32]),
           num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-dataset_val = dataset_val.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
-dataset_val = dataset_val.prefetch(buffer_size=tf.data.experimental.AUTOTUNE) 
+dataset_val = dataset_val.shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+#dataset_val = dataset_val.prefetch(buffer_size=tf.data.experimental.AUTOTUNE) 
 
 
 print(f"tf.dataset created")
@@ -263,8 +267,9 @@ def loss_function(real, pred):
 # Current time string
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
+
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/train"
+checkpoint_path = f"./checkpoints/train_attention_large"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                            decoder=decoder,
                            optimizer = optimizer)
@@ -275,6 +280,12 @@ if ckpt_manager.latest_checkpoint:
     start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
     # restoring the latest checkpoint in checkpoint_path
     ckpt.restore(ckpt_manager.latest_checkpoint)
+
+if start_epoch != 0:
+    print(f"Checkpoint loaded. Starting from epoch {start_epoch}")
+else:
+    print(f"No checkpoint loaded.")
+
 
 ## Store training information
 loss_plot = []
@@ -404,9 +415,9 @@ print("###################")
 end_token = tokenizer.word_index['<end>']
 
 save_checkpoints = True
-run_bleu_tests = True # if True compute BLEU score on test set after epochs
+run_bleu_tests = False # if True compute BLEU score on test set after epochs
 
-EPOCHS = 20
+EPOCHS = 30
 
 def main(EPOCHS = 3, gpu = 0):
     print(f"> Training for {EPOCHS}(cmpltd {start_epoch}) epochs!")
@@ -492,7 +503,11 @@ def save_model_sum():
         with redirect_stdout(f):
             encoder.summary()
             decoder.summary()
-
+        f.write("\n")
+        f.write(parameter_string)
+        f.write("\n")
+        f.write(f"total training epochs: {EPOCHS}")
+#TODO: store training parameters as well (batch size, embedding dim, topk, ....)
 
 
 
@@ -503,14 +518,25 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
         print(f"Logging error to error.log")
+        err_var.update("caught during saving of loss and model summary")
         #logging.error('Error at %s', 'division', exc_info=e)
         #logging.error(traceback.format_exc())
         with open("error.log", "w") as f:
             f.write(traceback.format_exc()) 
+    except KeyboardInterrupt as e:
+        print(f"Caught Keyboard Interrupt")
+        print(f"Saving partial data")
 
 
-    save_loss(loss_plot, loss_plot_test)
-    save_model_sum()
+    try:
+        save_loss(loss_plot, loss_plot_test)
+        save_model_sum()
+    except Exception as e:
+        print("erro caught during saving of loss and model summary")
+        err_var.update("caught during saving of loss and model summary")
+        bot.kill()
+
+    print("succesfully saved data")
     print("terminating bot process")
     bot.kill()
     print("## Done. ##")
