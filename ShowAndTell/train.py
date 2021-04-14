@@ -13,6 +13,8 @@ import collections
 from model import Decoder as RNN
 import datetime
 from dataclass import Dataclass
+import traceback
+from contextlib import redirect_stdout 
 
 ## Start telegram bot
 bot = tb.Tensorbot()
@@ -35,7 +37,7 @@ embedding_dim = 256
 units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
-EPOCHS = 5
+EPOCHS = 1
 save_checkpoints = True
 
 
@@ -62,10 +64,11 @@ dataset = dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size = 
 optimizer = tf.keras.optimizers.Adam()
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
-
+metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
 ## Init Model
-decoder = RNN(embedding_dim, units, vocab_size, tokenizer, optimizer, loss_object)
+decoder = RNN(embedding_dim, units, vocab_size, tokenizer)
+decoder.compile(optimizer, loss_object, metric_object, run_eagerly=True)
 
 ## Loss function
 def loss_function(real, pred):
@@ -154,7 +157,7 @@ def save_loss(train_loss, train_batch_loss):
         np.savez(f, x=t_loss, y=t_b_loss)
 
 def save_model_sum():
-    with open('./modelsummary.txt', 'w') as f:
+    with open('modelsummary.txt', 'w') as f:
         with redirect_stdout(f):
             decoder.encoder.summary()
             decoder.summary()
@@ -168,11 +171,15 @@ def save_model_sum():
 
 if __name__ == '__main__':
     try:
-        train_loss, train_batch_loss = main()
+        #train_loss, train_batch_loss = main()
+        tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir,
+                                                    profile_batch='100, 105')
+        decoder.fit(dataset, epochs = 1, steps_per_epoch=num_steps, callbacks=[tb_callback])
     except Exception as e:
         err_str = f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
         print(err_str)
         err_var.update(err_str)
+        traceback.print_exc(file=open('ERROR_file.txt', 'w'))
         bot.kill()
         raise e
     except KeyboardInterrupt as e:
@@ -183,6 +190,7 @@ if __name__ == '__main__':
         save_model_sum()
     except Exception as e:
         print("Failed to store model summary")
+        traceback.print_exc(file=open('ERROR_file.txt', "a"))
         bot.kill()
 
     try:
@@ -191,6 +199,7 @@ if __name__ == '__main__':
     except Exception as e:
         print("error saving loss data") 
         err_var.update("failt to save loss data")
+        traceback.print_exc(file=open('ERROR_file.txt', 'a'))
         bot.kill()
 
     bot.kill()

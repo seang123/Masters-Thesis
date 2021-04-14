@@ -1,0 +1,34 @@
+Traceback (most recent call last):
+  File "train.py", line 175, in <module>
+    decoder.fit(dataset, epochs = 1, steps_per_epoch=num_steps)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 108, in _method_wrapper
+    return method(self, *args, **kwargs)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 1098, in fit
+    tmp_logs = train_function(iterator)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 806, in train_function
+    return step_function(self, iterator)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 799, in step_function
+    write_scalar_summaries(outputs, step=model._train_counter)  # pylint: disable=protected-access
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 2755, in write_scalar_summaries
+    for name, value in logs.items():
+AttributeError: 'tuple' object has no attribute 'items'
+Traceback (most recent call last):
+  File "train.py", line 188, in <module>
+    save_model_sum()
+  File "train.py", line 163, in save_model_sum
+    decoder.summary()
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 2351, in summary
+    raise ValueError('This model has not yet been built. '
+ValueError: This model has not yet been built. Build the model first by calling `build()` or calling `fit()` with some data, or specify an `input_shape` argument in the first layer(s) for automatic build.
+Traceback (most recent call last):
+  File "train.py", line 195, in <module>
+    save_loss(train_loss, train_batch_loss)
+NameError: name 'train_loss' is not defined
+Traceback (most recent call last):
+  File "train.py", line 188, in <module>
+  File "train.py", line 163, in save_model_sum
+    decoder.self.summary()
+AttributeError: 'Decoder' object has no attribute 'self'
+Traceback (most recent call last):
+  File "train.py", line 195, in <module>
+NameError: name 'train_loss' is not defined
