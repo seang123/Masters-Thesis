@@ -8,3 +8,25 @@ Total params: 1,048,832
 Trainable params: 1,048,832
 Non-trainable params: 0
 _________________________________________________________________
+Model: "decoder"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+embedding (Embedding)        multiple                  1280256   
+_________________________________________________________________
+lstm (LSTM)                  multiple                  2099200   
+_________________________________________________________________
+dense_1 (Dense)              multiple                  262656    
+_________________________________________________________________
+dense_2 (Dense)              multiple                  2565513   
+=================================================================
+Total params: 6,207,625
+Trainable params: 6,207,625
+Non-trainable params: 0
+_________________________________________________________________
+
+Parameters:
+Batch Size: 128 | embedding dim: 256 | units: 512 | vocab size: 5001 | nr batches: 2710 | train set: 346934 | test set: 18259
+Total training epochs: 17
+Training started at: 17:32:58 - 15/04/2021
+Training completed at: 18:05:01 - 15/04/2021

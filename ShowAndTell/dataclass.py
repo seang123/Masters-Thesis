@@ -99,3 +99,11 @@ class Dataclass():
     def max_length(self):
         # return length of longest caption
         return max(len(i) for x in self.annt_dict.values() for i in x)
+
+    @staticmethod
+    def load_loss():
+        if os.path.exists("loss_data.npz"):
+            x = np.load("loss_data.npz")
+            return list(x['xtrain']), list(x['ytrain']), list(x['xtest']), list(x['ytest'])
+        else:
+            return [], [], [], []

@@ -1,4 +1,6 @@
-
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 import time
@@ -10,34 +12,45 @@ import tensorbot as tb
 import utils
 import h5py
 import collections
-from model import Decoder as RNN
+from model import Encoder, Decoder, CaptionGenerator
 import datetime
 from dataclass import Dataclass
 import traceback
 from contextlib import redirect_stdout 
 
+
+gpu_to_use = 2
+
+# Allow memory growth on GPU devices 
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+for i in range(0, len(physical_devices)):
+    tf.config.experimental.set_memory_growth(physical_devices[i], True)
+tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
+
 ## Start telegram bot
 bot = tb.Tensorbot()
 gpu_var   = bot.register_variable("GPU", "", autoupdate=True)
 epoch_var = bot.register_variable("", "", autoupdate=True)
-err_var   = bot.register_variable("ERROR:", "", autoupdate=True)
+err_var   = bot.register_variable("ERROR", "", autoupdate=True)
 
 top_k = 5000
 dataclass = Dataclass(73000, top_k)
 
 tokenizer = dataclass.get_tokenizer()
+max_length = dataclass.max_length()
 
-img_name_train, cap_train, img_name_val, _ = dataclass.train_test_split(0.95)
+img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.95)
 
 
 ## Parameters
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 BUFFER_SIZE = 1000
 embedding_dim = 256
 units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
-EPOCHS = 1
+num_steps_test = len(img_name_val) // BATCH_SIZE
+EPOCHS = 17
 save_checkpoints = True
 
 
@@ -56,9 +69,17 @@ dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
 
 dataset = dataset.map(lambda item1, item2: tf.numpy_function(
     map_func, [item1, item2], [tf.float32, tf.int32]),
-    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    num_parallel_calls=tf.data.experimental.AUTOTUNE).cache()
 
 dataset = dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+
+## validation dataset
+dataset_val = tf.data.Dataset.from_tensor_slices((img_name_val, cap_val))
+dataset_val = dataset_val.map(lambda item1, item2: tf.numpy_function(
+    map_func, [item1, item2], [tf.float32, tf.int32]),
+    num_parallel_calls=tf.data.experimental.AUTOTUNE).cache()
+dataset_val = dataset_val.shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
 
 ## Optimizer
 optimizer = tf.keras.optimizers.Adam()
@@ -66,9 +87,12 @@ loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
+
 ## Init Model
-decoder = RNN(embedding_dim, units, vocab_size, tokenizer)
-decoder.compile(optimizer, loss_object, metric_object, run_eagerly=True)
+encoder = Encoder(embedding_dim)
+decoder = Decoder(embedding_dim, units, vocab_size)
+model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
+model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
 
 ## Loss function
 def loss_function(real, pred):
@@ -83,6 +107,10 @@ def loss_function(real, pred):
 # Current time string
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 train_start_time = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+
+# Loggers for Tensorboard
+log_dir = 'logs/' + current_time + '/train'
+train_summary_writer = tf.summary.create_file_writer(log_dir)
 
 
 ## Checkpoints handler
@@ -108,14 +136,15 @@ print("###################")
 print(parameter_string)
 print("###################")
 
+training_loss, training_batch_loss, testing_loss, testing_batch_loss = dataclass.load_loss()
 
 ## Main Loop
 def main(gpu = 2):
-    print(f"Training for {EPOCHS} epochs")
-    epoch_var.update(f"Starting Training for {EPOCHS} epochs")
+    print(f"Training for {EPOCHS}({start_epoch}) epochs")
+    epoch_var.update(f"Starting Training for {EPOCHS}({start_epoch}) epochs")
 
-    training_loss = []
-    training_batch_loss = []
+    #training_loss = []
+    #training_batch_loss = []
 
     for epoch in range(start_epoch, EPOCHS):
         start = time.time()
@@ -125,41 +154,81 @@ def main(gpu = 2):
         pre_batch_time = 0
         for (batch, (img_tensor, target)) in dataset.enumerate():
 
-            with tf.device(f'/gpu:{gpu}'):
-                batch_loss, t_loss = decoder.train_step(img_tensor, target)
+            #with tf.device(f'/gpu:{gpu}'):
+            losses = model.train_step((img_tensor, target))
+            sum_loss, t_loss = losses.values()
             total_loss += t_loss
 
             training_loss.append(t_loss)
-            training_batch_loss.append(batch_loss)
+            training_batch_loss.append(sum_loss)
 
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(t_loss):.4f} | {(time.time()-start-pre_batch_time):.2f} sec")
                 pre_batch_time = time.time() - start
 
-        print(f"Epoch {epoch} done.")
+        #print(f"Epoch {epoch} done.")
+        print(f"Training    | Loss {(total_loss/num_steps):.6f} | Total Time: {(time.time() - start):.2f} sec")
         epoch_var.update(f"TRAIN: epoch {epoch} done\ntotal_loss: {total_loss:.4f}\ntotal time: {(time.time()-start):.2f} sec")
-
-
-        print(f"Epoch {epoch} | Loss {(total_loss/num_steps):.6f} | Total Time {(time.time() - start):.2f} sec\n")
 
         if save_checkpoints:
             ckpt_manager.save()
 
+        try:
+            gen_send_plot(epoch)
+        except Exception:
+            pass
+
+        print("Testing ...")
+        start_test = time.time()
+        total_loss_test = 0
+        for (batch, (img_tensor, target)) in dataset_val.enumerate():
+            losses = model.test_step((img_tensor, target))
+            sum_loss, t_loss = losses.values()
+            total_loss_test += t_loss 
+
+            testing_loss.append(t_loss)
+            testing_batch_loss.append(sum_loss)
+
+        epoch_var.update(f"TEST: epoch {epoch} done\ntotal_loss: {total_loss_test:.4f}\ntotal time: {(time.time()-start_test)} sec")
+
+        print(f"Testing     | Loss {(total_loss_test/num_steps_test):.6f} | Total Time: {(time.time() - start_test):.2f} sec\n", end = '\r') 
+        print(f"Epoch {epoch} done.")
+
+
     print("## Training Complete. ##")
     epoch_var.update("## Training Complete. ##")
 
-    return training_loss, training_batch_loss
+    return #training_loss, training_batch_loss
 
-def save_loss(train_loss, train_batch_loss):
-    t_loss = np.array(train_loss)
-    t_b_loss = np.array(train_batch_loss)
-    with open('./loss_data.npy', 'wb') as f:
-        np.savez(f, x=t_loss, y=t_b_loss)
+def gen_send_plot(epoch, send_plot=True):
+    """Generates a plt.plot and saves it as png
+    Telegram bot send that png
+    """
+    # create loss plot
+    fig = plt.figure()
+    plt.title(f"Total normalised loss per batch. Epoch {epoch}")
+    plt.ylabel("loss")
+    plt.xlabel("batch")
+    plt.plot(training_loss)
+    plt.savefig("./Figures/training_loss_so_far.png")
+    plt.close(fig)
+    # send the generated png
+    if send_plot:
+        bot.send_plot("./Figures/training_loss_so_far.png")
+
+
+def save_loss():
+    t_loss = np.array(training_loss)
+    t_b_loss = np.array(training_batch_loss)
+    test_loss = np.array(testing_loss)
+    test_b_loss = np.array(testing_batch_loss)
+    with open('./loss_data.npz', 'wb') as f:
+        np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=test_loss, ytest=test_b_loss)
 
 def save_model_sum():
     with open('modelsummary.txt', 'w') as f:
         with redirect_stdout(f):
-            decoder.encoder.summary()
+            encoder.summary()
             decoder.summary()
         f.write("\n")
         f.write(parameter_string)
@@ -171,10 +240,10 @@ def save_model_sum():
 
 if __name__ == '__main__':
     try:
-        #train_loss, train_batch_loss = main()
-        tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir,
-                                                    profile_batch='100, 105')
-        decoder.fit(dataset, epochs = 1, steps_per_epoch=num_steps, callbacks=[tb_callback])
+        #train_loss, train_batch_loss = 
+        main()
+        #tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir,profile_batch='100, 105')
+        #model.fit(dataset, epochs = 1, steps_per_epoch=num_steps, callbacks=[tb_callback])
     except Exception as e:
         err_str = f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
         print(err_str)
@@ -183,7 +252,7 @@ if __name__ == '__main__':
         bot.kill()
         raise e
     except KeyboardInterrupt as e:
-        print("Caught Keyboard Interrupt")
+        print("\nKeyboard Interrupt")
         print("Saving partial data")
 
     try:
@@ -191,16 +260,14 @@ if __name__ == '__main__':
     except Exception as e:
         print("Failed to store model summary")
         traceback.print_exc(file=open('ERROR_file.txt', "a"))
-        bot.kill()
 
     try:
-        save_loss(train_loss, train_batch_loss)
+        save_loss()
         print("Data saved!")
     except Exception as e:
         print("error saving loss data") 
         err_var.update("failt to save loss data")
         traceback.print_exc(file=open('ERROR_file.txt', 'a'))
-        bot.kill()
 
     bot.kill()
     print("Done.")
