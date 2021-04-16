@@ -2,17 +2,17 @@ Model: "encoder"
 _________________________________________________________________
 Layer (type)                 Output Shape              Param #   
 =================================================================
-dense (Dense)                multiple                  1048832   
+dense (Dense)                multiple                  2097664   
 =================================================================
-Total params: 1,048,832
-Trainable params: 1,048,832
+Total params: 2,097,664
+Trainable params: 2,097,664
 Non-trainable params: 0
 _________________________________________________________________
 Model: "decoder"
 _________________________________________________________________
 Layer (type)                 Output Shape              Param #   
 =================================================================
-embedding (Embedding)        multiple                  1280256   
+embedding (Embedding)        multiple                  2560512   
 _________________________________________________________________
 lstm (LSTM)                  multiple                  2099200   
 _________________________________________________________________
@@ -20,13 +20,13 @@ dense_1 (Dense)              multiple                  262656
 _________________________________________________________________
 dense_2 (Dense)              multiple                  2565513   
 =================================================================
-Total params: 6,207,625
-Trainable params: 6,207,625
+Total params: 7,487,881
+Trainable params: 7,487,881
 Non-trainable params: 0
 _________________________________________________________________
 
 Parameters:
-Batch Size: 128 | embedding dim: 256 | units: 512 | vocab size: 5001 | nr batches: 2710 | train set: 346934 | test set: 18259
+Batch Size: 128 | embedding dim: 512 | units: 512 | vocab size: 5001 | nr batches: 2710 | train set: 346937 | test set: 18256
 Total training epochs: 17
-Training started at: 17:32:58 - 15/04/2021
-Training completed at: 18:05:01 - 15/04/2021
+Training started at: 13:15:33 - 16/04/2021
+Training completed at: 13:19:03 - 16/04/2021

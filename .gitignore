@@ -155,3 +155,6 @@ figures/
 
 # model information
 /CNN_RNN/*.txt
+
+/ShowAndTell/*.txt
+/ShowAndTell/Figures

@@ -26,6 +26,7 @@ class Decoder(tf.keras.Model):
         self.units = units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
         self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, return_state=True, unit_forget_bias=True) 
+        #self.lstm = tf.compat.v1.keras.layers.CuDNNLSTM(units, return_sequences=True, return_state=True)
         # unit forget bias set forgetting bias to 1 at initilisation
 
         self.fc1 = tf.keras.layers.Dense(units)
@@ -34,19 +35,21 @@ class Decoder(tf.keras.Model):
     def call(self, data, training = False):
         """
             x        - a caption (word) - (bs, 1)
-            features - image feature    - (bs, 4096)
+            features - image feature    - (bs, 256)
             hidden   - previous state   - (bs, 512)
 
             I just realised I always feed the image into the lstm at every time step
             the show and tell paper only feed it in at the start 
         """
-        x, features, hidden = data
+        x, hidden = data
         
         # get the sentence embedding
-        x = self.embedding(x)
+        #x = self.embedding(x)
+        
+        # input to lstm should == (bs, 1, 512)
 
         # concatenate with image embedding
-        x = tf.concat([tf.expand_dims(features, 1), x], axis = -1)
+        # x = tf.concat([tf.expand_dims(features, 1), x], axis = -1)
 
         # pass through RNN
         output, state, carry = self.lstm(x) #(64, 1, 512) (64,512) (64,512)
@@ -89,6 +92,9 @@ class CaptionGenerator(tf.keras.Model):
         """
         Overwrites the keras.fit train_step
         https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
+
+        On the first step we want to pass in the image embedding.
+        On every subsequent step we want to pass in the decoded word 
         """
 
         # decompose dataset item
@@ -104,14 +110,21 @@ class CaptionGenerator(tf.keras.Model):
 
             features = self.encoder(img_tensor)
 
+
+            features = tf.expand_dims(features, 1)
+            _, hidden = self.decoder((features, hidden))
+
             for i in range(1, target.shape[1]):
-                predictions, hidden = self.decoder((dec_input, features, hidden))
+
+                x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
+                predictions, hidden = self.decoder((x, hidden))
                 loss += self.loss_function(target[:,i], predictions)
 
                 #self.compiled_metrics.update_state(target[:,i], predictions)
 
                 # teacher forcing
                 dec_input = tf.expand_dims(target[:,i], 1)
+
 
         total_loss = (loss / int(target.shape[1]))
 
@@ -137,10 +150,14 @@ class CaptionGenerator(tf.keras.Model):
         dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
 
         features = self.encoder(img_tensor)
+
+        features = tf.expand_dims(features, 1)
+        _, hidden = self.decoder((features, hidden))
         
         loss = 0
         for i in range(self.max_length):
-            prediction, hidden = self.decoder((dec_input, features, hidden))
+            x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
+            prediction, hidden = self.decoder((x, hidden))
             loss += self.loss_function(target[:,i], prediction) 
 
             predicted_id = tf.random.categorical(prediction, 1, dtype=tf.int32)

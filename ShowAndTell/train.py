@@ -45,13 +45,14 @@ img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.
 ## Parameters
 BATCH_SIZE = 128
 BUFFER_SIZE = 1000
-embedding_dim = 256
+embedding_dim = 512 
 units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 num_steps_test = len(img_name_val) // BATCH_SIZE
 EPOCHS = 17
-save_checkpoints = True
+save_checkpoints = True 
+save_data = True
 
 
 ## load image features data into memory
@@ -255,19 +256,20 @@ if __name__ == '__main__':
         print("\nKeyboard Interrupt")
         print("Saving partial data")
 
-    try:
-        save_model_sum()
-    except Exception as e:
-        print("Failed to store model summary")
-        traceback.print_exc(file=open('ERROR_file.txt', "a"))
+    if save_data:
+        try:
+            save_model_sum()
+        except Exception as e:
+            print("Failed to store model summary")
+            traceback.print_exc(file=open('ERROR_file.txt', "a"))
 
-    try:
-        save_loss()
-        print("Data saved!")
-    except Exception as e:
-        print("error saving loss data") 
-        err_var.update("failt to save loss data")
-        traceback.print_exc(file=open('ERROR_file.txt', 'a'))
+        try:
+            save_loss()
+            print("Data saved!")
+        except Exception as e:
+            print("error saving loss data") 
+            err_var.update("failt to save loss data")
+            traceback.print_exc(file=open('ERROR_file.txt', 'a'))
 
     bot.kill()
     print("Done.")

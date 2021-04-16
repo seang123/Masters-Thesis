@@ -1,8 +1,0 @@
-Predicted:
-the ice cream snow <end>
-Actual:
-<start> a man with a surf board looks out into the ocean as a boat sails  <end>
-<start> A man walking into the ocean with his surf board in one hand  <end>
-<start> The surfer is staring at the boat from the beach <end>
-<start> a man standing on a beach holding a surfboard <end>
-<start> A surfer carrying his surfboard into the ocean <end>

@@ -1,30 +1,37 @@
 Traceback (most recent call last):
-  File "train.py", line 241, in <module>
+  File "train.py", line 245, in <module>
     main()
-  File "train.py", line 176, in main
-    gen_send_plot(epoch)
-  File "train.py", line 210, in gen_send_plot
-    plt.savefig("/Figures/training_loss_so_far.png")
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/pyplot.py", line 859, in savefig
-    res = fig.savefig(*args, **kwargs)
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/figure.py", line 2311, in savefig
-    self.canvas.print_figure(fname, **kwargs)
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/backend_bases.py", line 2210, in print_figure
-    result = print_method(
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/backend_bases.py", line 1639, in wrapper
-    return func(*args, **kwargs)
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/backends/backend_agg.py", line 510, in print_png
-    mpl.image.imsave(
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/matplotlib/image.py", line 1611, in imsave
-    image.save(fname, **pil_kwargs)
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/PIL/Image.py", line 2161, in save
-    fp = builtins.open(filename, "w+b")
-FileNotFoundError: [Errno 2] No such file or directory: '/Figures/training_loss_so_far.png'
-Traceback (most recent call last):
-  File "train.py", line 259, in <module>
-    save_model_sum()
-  File "train.py", line 231, in save_model_sum
-    encoder.summary()
-  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/keras/engine/training.py", line 2351, in summary
-    raise ValueError('This model has not yet been built. '
-ValueError: This model has not yet been built. Build the model first by calling `build()` or calling `fit()` with some data, or specify an `input_shape` argument in the first layer(s) for automatic build.
+  File "train.py", line 159, in main
+    losses = model.train_step((img_tensor, target))
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/def_function.py", line 780, in __call__
+    result = self._call(*args, **kwds)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/def_function.py", line 840, in _call
+    return self._stateless_fn(*args, **kwds)
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/function.py", line 2829, in __call__
+    return graph_function._filtered_call(args, kwargs)  # pylint: disable=protected-access
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/function.py", line 1843, in _filtered_call
+    return self._call_flat(
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/function.py", line 1923, in _call_flat
+    return self._build_call_outputs(self._inference_function.call(
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/function.py", line 545, in call
+    outputs = execute.execute(
+  File "/home/seagie/miniconda3/lib/python3.8/site-packages/tensorflow/python/eager/execute.py", line 59, in quick_execute
+    tensors = pywrap_tfe.TFE_Py_Execute(ctx._handle, device_name, op_name,
+tensorflow.python.framework.errors_impl.ResourceExhaustedError: 2 root error(s) found.
+  (0) Resource exhausted:  OOM when allocating tensor with shape[512,2048] and type float on /job:localhost/replica:0/task:0/device:GPU:0 by allocator GPU_0_bfc
+	 [[node gradient_tape/decoder/cu_dnnlstm/strided_slice_3821/StridedSliceGrad (defined at /home/seagie/NSD/Code/Masters-Thesis/ShowAndTell/model.py:133) ]]
+Hint: If you want to see a list of allocated tensors when OOM happens, add report_tensor_allocations_upon_oom to RunOptions for current allocation info.
+
+	 [[concat/_2088]]
+Hint: If you want to see a list of allocated tensors when OOM happens, add report_tensor_allocations_upon_oom to RunOptions for current allocation info.
+
+  (1) Resource exhausted:  OOM when allocating tensor with shape[512,2048] and type float on /job:localhost/replica:0/task:0/device:GPU:0 by allocator GPU_0_bfc
+	 [[node gradient_tape/decoder/cu_dnnlstm/strided_slice_3821/StridedSliceGrad (defined at /home/seagie/NSD/Code/Masters-Thesis/ShowAndTell/model.py:133) ]]
+Hint: If you want to see a list of allocated tensors when OOM happens, add report_tensor_allocations_upon_oom to RunOptions for current allocation info.
+
+0 successful operations.
+0 derived errors ignored. [Op:__inference_train_step_206907]
+
+Function call stack:
+train_step -> train_step
+
