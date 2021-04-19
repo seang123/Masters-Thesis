@@ -25,8 +25,8 @@ class Decoder(tf.keras.Model):
         super(Decoder, self).__init__()
         self.units = units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
-        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, return_state=True, unit_forget_bias=True) 
-        #self.lstm = tf.compat.v1.keras.layers.CuDNNLSTM(units, return_sequences=True, return_state=True)
+        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform') 
+
         # unit forget bias set forgetting bias to 1 at initilisation
 
         self.fc1 = tf.keras.layers.Dense(units)
@@ -95,6 +95,10 @@ class CaptionGenerator(tf.keras.Model):
 
         On the first step we want to pass in the image embedding.
         On every subsequent step we want to pass in the decoded word 
+
+        TODO:
+            can this step be done without forloop as in: www.tensorflow.org/addons/tutorials/networks_seq2seq_nmt
+
         """
 
         # decompose dataset item
@@ -112,9 +116,10 @@ class CaptionGenerator(tf.keras.Model):
 
 
             features = tf.expand_dims(features, 1)
-            _, hidden = self.decoder((features, hidden))
+            predictions, hidden = self.decoder((features, hidden))
+            loss += self.loss_function(target[:,0], predictions)
 
-            for i in range(1, target.shape[1]):
+            for i in range(0, target.shape[1]):
 
                 x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
                 predictions, hidden = self.decoder((x, hidden))
@@ -128,7 +133,7 @@ class CaptionGenerator(tf.keras.Model):
 
         total_loss = (loss / int(target.shape[1]))
 
-        trainable_variables = self.trainable_variables + self.encoder.trainable_variables 
+        trainable_variables = self.decoder.trainable_variables + self.encoder.trainable_variables 
 
         gradients = tape.gradient(loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
@@ -145,24 +150,28 @@ class CaptionGenerator(tf.keras.Model):
         """
         img_tensor, target = data
 
+        loss = 0
+
         hidden = self.decoder.reset_state(batch_size=target.shape[0])
 
         dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
 
+        ## Pass image into LSTM - to init state
         features = self.encoder(img_tensor)
-
         features = tf.expand_dims(features, 1)
         _, hidden = self.decoder((features, hidden))
+        #loss += self.loss_function(target[:,0], prediction)
         
-        loss = 0
-        for i in range(self.max_length):
+        for i in range(0, self.max_length):
             x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
             prediction, hidden = self.decoder((x, hidden))
             loss += self.loss_function(target[:,i], prediction) 
 
             predicted_id = tf.random.categorical(prediction, 1, dtype=tf.int32)
 
-            dec_input = predicted_id #tf.expand_dims([predicted_id], 1)
+            #dec_input = predicted_id #tf.expand_dims([predicted_id], 1)
+            # TODO: Do we use teacher forcing in test??
+            dec_input = tf.expand_dims(target[:,i], 1)
 
         total_loss = (loss / int(target.shape[1]))
 

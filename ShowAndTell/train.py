@@ -33,7 +33,7 @@ gpu_var   = bot.register_variable("GPU", "", autoupdate=True)
 epoch_var = bot.register_variable("", "", autoupdate=True)
 err_var   = bot.register_variable("ERROR", "", autoupdate=True)
 
-top_k = 5000
+top_k = 6000
 dataclass = Dataclass(73000, top_k)
 
 tokenizer = dataclass.get_tokenizer()
@@ -50,7 +50,7 @@ units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 num_steps_test = len(img_name_val) // BATCH_SIZE
-EPOCHS = 17
+EPOCHS = 10
 save_checkpoints = True 
 save_data = True
 
@@ -106,7 +106,7 @@ def loss_function(real, pred):
     return tf.reduce_mean(loss_)
 
 # Current time string
-current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+current_time = datetime.datetime.now().strftime("%H%M%S-%d%m%Y")
 train_start_time = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
 
 # Loggers for Tensorboard
@@ -114,9 +114,11 @@ log_dir = 'logs/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer(log_dir)
 
 
+data_path = f"./data/"
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/train"
-ckpt = tf.train.Checkpoint(decoder=decoder,
+checkpoint_path = f"./checkpoints/train/"
+ckpt = tf.train.Checkpoint(encoder=encoder,
+                        decoder=decoder,
                            optimizer = optimizer)
 ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
@@ -137,7 +139,11 @@ print("###################")
 print(parameter_string)
 print("###################")
 
-training_loss, training_batch_loss, testing_loss, testing_batch_loss = dataclass.load_loss()
+## load loss data if it exists
+training_loss, training_batch_loss, testing_loss, testing_batch_loss = dataclass.load_loss(f"{data_path}loss_data.npz")
+
+## Store validation data
+dataclass.save_val_keys(f"{data_path}img_name_val.txt", img_name_val)
 
 ## Main Loop
 def main(gpu = 2):
@@ -169,15 +175,11 @@ def main(gpu = 2):
 
         #print(f"Epoch {epoch} done.")
         print(f"Training    | Loss {(total_loss/num_steps):.6f} | Total Time: {(time.time() - start):.2f} sec")
-        epoch_var.update(f"TRAIN: epoch {epoch} done\ntotal_loss: {total_loss:.4f}\ntotal time: {(time.time()-start):.2f} sec")
+        epoch_var.update(f"TRAIN: epoch {epoch} done\navg loss: {(total_loss/num_steps):.4f}\ntotal time: {(time.time()-start):.2f} sec")
 
         if save_checkpoints:
             ckpt_manager.save()
 
-        try:
-            gen_send_plot(epoch)
-        except Exception:
-            pass
 
         print("Testing ...")
         start_test = time.time()
@@ -190,10 +192,15 @@ def main(gpu = 2):
             testing_loss.append(t_loss)
             testing_batch_loss.append(sum_loss)
 
-        epoch_var.update(f"TEST: epoch {epoch} done\ntotal_loss: {total_loss_test:.4f}\ntotal time: {(time.time()-start_test)} sec")
+        epoch_var.update(f"TEST: epoch {epoch} done\navg loss: {(total_loss_test/num_steps_test):.4f}\ntotal time: {(time.time()-start_test):.2f} sec")
 
         print(f"Testing     | Loss {(total_loss_test/num_steps_test):.6f} | Total Time: {(time.time() - start_test):.2f} sec\n", end = '\r') 
         print(f"Epoch {epoch} done.")
+
+        try:
+            gen_send_plot(epoch)
+        except Exception:
+            pass
 
 
     print("## Training Complete. ##")
@@ -223,7 +230,7 @@ def save_loss():
     t_b_loss = np.array(training_batch_loss)
     test_loss = np.array(testing_loss)
     test_b_loss = np.array(testing_batch_loss)
-    with open('./loss_data.npz', 'wb') as f:
+    with open(f'{data_path}loss_data.npz', 'wb') as f:
         np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=test_loss, ytest=test_b_loss)
 
 def save_model_sum():
@@ -259,6 +266,7 @@ if __name__ == '__main__':
     if save_data:
         try:
             save_model_sum()
+            print("Model summary saved")
         except Exception as e:
             print("Failed to store model summary")
             traceback.print_exc(file=open('ERROR_file.txt', "a"))

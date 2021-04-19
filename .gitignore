@@ -158,3 +158,5 @@ figures/
 
 /ShowAndTell/*.txt
 /ShowAndTell/Figures
+/ShowAndTell/test_output
+/ShowAndTell/data

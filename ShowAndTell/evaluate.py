@@ -23,8 +23,9 @@ class Evaluate():
     Loads the pre-trained Encoder/Decoder networks 
     """
 
-    def __init__(self, save_dir):
+    def __init__(self, save_dir, use_vgg16 = False):
         self.save_dir = save_dir
+        self.use_vgg16 = use_vgg16
         self.nsd_loader = NSDAccess("/home/seagie/NSD")
         self.nsd_loader.stim_descriptions = pd.read_csv(self.nsd_loader.stimuli_description_file, index_col=0)
         
@@ -37,9 +38,10 @@ class Evaluate():
         else:
             self.val_keys = np.arange(0, 73000, dtype=np.int32)
 
-        embedding_dim = 256 # was 256
+        # Model Parameter settings TODO: load automatically from modelsummary file
+        embedding_dim = 512 # was 256
         units = 512 # was 512
-        self.top_k = 5000
+        self.top_k = 6000
         vocab_size = self.top_k + 1
 
         # load tokenizer
@@ -55,6 +57,19 @@ class Evaluate():
 
         # load features
         self.image_features = np.load("img_features_vgg16").astype(np.float32)
+        if use_vgg16:
+            image_model = tf.keras.applications.VGG16(include_top=True, weights='imagenet')
+            new_input = image_model.input
+            hidden_layer = image_model.layers[-2].output
+            self.vgg16 = tf.keras.Model(new_input, hidden_layer)
+
+    def load_image_vgg16(self, idx: int):
+        if not isinstance(idx, list):
+            idx = [idx]
+        img = self.nsd_loader.read_images(idx)
+        img = tf.image.resize(img, (224, 224))
+        img = tf.keras.applications.vgg16.preprocess_input(img)
+        return img
 
 
     def gen_prediction(self, image_id=None):
@@ -70,22 +85,40 @@ class Evaluate():
             image_id = np.random.choice(self.val_keys, 1)[0]
        
         hidden = self.decoder.reset_state(batch_size=1)
-        
-        # load CNN output
-        image_features = self.get_img_feature(image_id)
-        print("img features:", image_features.shape)
-        #image_features = tf.reshape(image_features, (image_features.shape[0],-1,image_features.shape[3]))
-        image_features = tf.reshape(image_features, (1, 4096))
 
-        # pass through encoder
-        features = self.model.encoder(image_features)
+        if self.use_vgg16:
+            print("Passing image through vgg16")
+            img = self.load_image_vgg16(image_id)
+            image_features = self.vgg16(img)
+            print("img features:", image_features.shape)
+        else: 
+            # load CNN output
+            image_features = self.get_img_feature(image_id)
+            print("img features:", image_features.shape)
+            #image_features = tf.reshape(image_features, (image_features.shape[0],-1,image_features.shape[3]))
+            image_features = tf.reshape(image_features, (1, 4096))
+
+
+        
+
 
         dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']], 0)
         result = []
-
         max_length = self.max_length() 
-        for i in range(0, max_length):
-            predictions, hidden = self.model.decoder((dec_input, features, hidden))
+
+        # pass image through encoder and get first word
+        features = self.model.encoder(image_features)
+        features = tf.expand_dims(features,1)
+        predictions, hidden = self.model.decoder((features, hidden))
+        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
+        result.append(self.tokenizer.index_word[predicted_id])
+        if result[0] == '<end>':
+            return image_id, result, self.get_captions(image_id)
+
+        # get the rest of the sentence
+        for i in range(1, max_length):
+            x = self.model.decoder.embedding(dec_input)
+            predictions, hidden = self.model.decoder((x, hidden))
 
             predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
             result.append(self.tokenizer.index_word[predicted_id])
@@ -146,6 +179,7 @@ class Evaluate():
         # returns all captions for a given image id
         return self.annt_dict[str(img_id)]
 
+
     def load_checkpoint(self):
 
         
@@ -165,5 +199,6 @@ class Evaluate():
             start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
             # restoring the latest checkpoint in checkpoint_path
             ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
+            # expect_partial() hides the warning that the optimizer state wasn't loaded. This is fine since we arn't interested in training here.
 
             print("Checkpoint loaded!")

@@ -2,7 +2,7 @@ from evaluate import Evaluate
 
 
 # init the evaluation class
-ev = Evaluate("./test_output")
+ev = Evaluate("./test_output", use_vgg16 = True)
 
 # Generate for an image a predicted caption
 img_id, generated, actual = ev.gen_prediction()

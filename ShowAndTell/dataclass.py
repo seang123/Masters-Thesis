@@ -22,6 +22,14 @@ class Dataclass():
 
         self.tokenizer, self.train_seqs, self.cap_vector = self.create_tokenizer()
 
+
+    def save_val_keys(self, path, data):
+        ## save the validation set for later analysis
+        with open(path, 'w') as f:
+            for i in data:
+                f.write("%s\n" % i) 
+        return
+
     def get_tokenizer(self):
         return self.tokenizer
 
@@ -101,9 +109,9 @@ class Dataclass():
         return max(len(i) for x in self.annt_dict.values() for i in x)
 
     @staticmethod
-    def load_loss():
-        if os.path.exists("loss_data.npz"):
-            x = np.load("loss_data.npz")
+    def load_loss(path):
+        if os.path.exists(path):
+            x = np.load(path)
             return list(x['xtrain']), list(x['ytrain']), list(x['xtest']), list(x['ytest'])
         else:
             return [], [], [], []
