@@ -33,7 +33,7 @@ gpu_var   = bot.register_variable("GPU", "", autoupdate=True)
 epoch_var = bot.register_variable("", "", autoupdate=True)
 err_var   = bot.register_variable("ERROR", "", autoupdate=True)
 
-top_k = 6000
+top_k = 5000
 dataclass = Dataclass(73000, top_k)
 
 tokenizer = dataclass.get_tokenizer()
@@ -43,7 +43,7 @@ img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.
 
 
 ## Parameters
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 BUFFER_SIZE = 1000
 embedding_dim = 512 
 units = 512 # recurrent units
@@ -150,13 +150,6 @@ def main(gpu = 2):
     print(f"Training for {EPOCHS}({start_epoch}) epochs")
     epoch_var.update(f"Starting Training for {EPOCHS}({start_epoch}) epochs")
 
-    #training_loss = []
-    #training_batch_loss = []
-
-    # Initial pass to build model (needed because of stateful=True and non-constant batch_size)
-    for (batch, (img_tensor, target)) in dataset.enumerate():
-        model.train_step((img_tensor, target))
-        break
 
     for epoch in range(start_epoch, EPOCHS):
         start = time.time()
@@ -166,11 +159,6 @@ def main(gpu = 2):
         pre_batch_time = 0
         for (batch, (img_tensor, target)) in dataset.enumerate():
 
-            if target.shape[0] != BATCH_SIZE: # because of stateful=True its easier to just skip the last few samples rather than creating
-                # a new model with a different batch_size
-                break
-
-            model.decoder.lstm.reset_states(states=[np.zeros((target.shape[0],512)), np.zeros((target.shape[0],512))])
             losses = model.train_step((img_tensor, target))
             sum_loss, t_loss = losses.values()
             total_loss += t_loss

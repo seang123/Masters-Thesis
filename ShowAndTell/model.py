@@ -28,7 +28,7 @@ class Decoder(tf.keras.Model):
         self.units = units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
         # LSTM layer
-        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=True, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#(inp)
+        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=False, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#(inp)
 
         # Fully connected layers to convert from embedding dim to vocab
         self.fc1 = tf.keras.layers.Dense(units)
@@ -38,6 +38,29 @@ class Decoder(tf.keras.Model):
         return self.embedding(x)
 
     def call(self, data, training = False):
+
+        x, features = data
+
+        ## feat = (128, 1, 512)
+        feat = tf.expand_dims(features, 1)
+
+        ## x = (128, 260, 512)
+        x = self.embedding(x)
+        ## x = (128, 261, 512)
+        x = tf.concat([feat, x], axis = 1)
+
+        ## output = (128, 261, 512)
+        output, _, _ = self.lstm(x)
+
+        ## x = (128, 261, 512)
+        x = self.fc1(output)
+
+        ## x = (128, 261, 5001)
+        x = self.fc2(x)
+
+        return x
+
+    def old_call(self, data, training = False):
         """
             x        - a caption (word) - (bs, 1)
             features - image feature    - (bs, 256)
@@ -59,14 +82,23 @@ class Decoder(tf.keras.Model):
         # x = tf.concat([tf.expand_dims(features, 1), x], axis = -1)
 
         # pass through RNN
-        output, state, carry = self.lstm(x) #(64, 1, 512) (64,512) (64,512)
+        output, state, _ = self.lstm(x) #(64, 1, 512) (64,512) (64,512)
+
+        print("---lstm---")
+        print("output", output.shape)
+        print("state", state.shape)
+        print("carry", carry.shape)
 
         # return-shape = (bs, 1, units) = (64, 1, 512)
         x = self.fc1(output)
 
+        print("x", x.shape)
+        print("---------")
 
         # reshape to (64, 512)
-        x = tf.reshape(x, (-1, x.shape[2]))
+        #x = tf.reshape(x, (-1, x.shape[2]))
+
+        #print("x reshape", x.shape)
 
         # map RNN output to vocab
         x = self.fc2(x)
@@ -95,7 +127,7 @@ class CaptionGenerator(tf.keras.Model):
     #    #self.metrics = metric
 
     @tf.function
-    def train_step(self, img_cap: tuple):
+    def old_train_step(self, img_cap: tuple):
         """
         Overwrites the keras.fit train_step
         https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
@@ -151,8 +183,8 @@ class CaptionGenerator(tf.keras.Model):
         #return loss, total_loss
         return {"loss": loss, "norm loss": total_loss}
 
-    #@tf.function
-    def train_step2(self, img_cap):
+    @tf.function
+    def train_step(self, img_cap):
         """Implemention of train_step but without for-loop (TODO: implement)
         This would make it easier in that we would no longer need the stateful=True arrtribute in the LSTM init 
         also would probably be faster 
@@ -160,32 +192,46 @@ class CaptionGenerator(tf.keras.Model):
         Instead of taking a single word(bs,1,5001) -> embedding it(bs,1,256) -> passing it into lstm (bs,1,512)
         Take all words(bs,260,5001) -> embed them(bs,260,256) -> lstm(bs,260,512)      -- 260=max_length (all captions are paddd to 260)
         """
+        print("### TRACING ###")
         # decompose dataset item
         img_tensor, target = img_cap
 
         loss = 0
 
-        hidden = self.decoder.reset_state(batch_size = target.shape[0]) 
+        #hidden = self.decoder.reset_state(batch_size = target.shape[0]) 
 
-        dec_input = target #tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
+        #dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
+        #dec_input = target
+
 
         with tf.GradientTape() as tape:
 
             ## feature embedding
             features = self.encoder(img_tensor)
-            # pass features into lstm
-            features = tf.expand_dims(features, 1)
-            predictions, hidden = self.decoder((features, hidden))
-            #_ = self.loss_function(target[:,:-1], predictions)
+            #features = tf.expand_dims(features, 1)
 
             ## Word embedding | pass whole sentence into LSTM
-            x = self.decoder.embed(dec_input) 
-            print("x", x.shape)
-            predictions, hidden = self.decoder((x, hidden))
-            loss += self.loss_function(target, predictions)
-            
-            total_loss = (loss / int(target.shape[1]))
+            #x = self.decoder.embedding(dec_input)
 
+            ## concat image to start of input (128, 261, 512)
+            #x = np.concatenate((features, x), axis=1)
+
+            ## Generate predictions (128, 261, 5001)
+            #predictions, hidden = self.decoder((x, hidden))
+
+            predictions = self.decoder((target, features))
+            
+            ## Loop through the sentences to get the loss
+            for i in range(1, target.shape[1]):
+                loss += self.loss_function(target[:,i], predictions[:,i])
+        
+        total_loss = (loss / int(target.shape[1]))
+
+        trainable_variables = self.decoder.trainable_variables + self.encoder.trainable_variables 
+
+        gradients = tape.gradient(loss, trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
+            
         return {"loss": loss, "norm loss": total_loss}
 
 
