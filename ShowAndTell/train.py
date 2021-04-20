@@ -118,8 +118,8 @@ data_path = f"./data/"
 ## Checkpoints handler
 checkpoint_path = f"./checkpoints/train/"
 ckpt = tf.train.Checkpoint(encoder=encoder,
-                        decoder=decoder,
-                           optimizer = optimizer)
+                           decoder=decoder,
+                           optimizer=optimizer)
 ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
 start_epoch = 0
@@ -153,6 +153,11 @@ def main(gpu = 2):
     #training_loss = []
     #training_batch_loss = []
 
+    # Initial pass to build model (needed because of stateful=True and non-constant batch_size)
+    for (batch, (img_tensor, target)) in dataset.enumerate():
+        model.train_step((img_tensor, target))
+        break
+
     for epoch in range(start_epoch, EPOCHS):
         start = time.time()
 
@@ -161,7 +166,11 @@ def main(gpu = 2):
         pre_batch_time = 0
         for (batch, (img_tensor, target)) in dataset.enumerate():
 
-            #with tf.device(f'/gpu:{gpu}'):
+            if target.shape[0] != BATCH_SIZE: # because of stateful=True its easier to just skip the last few samples rather than creating
+                # a new model with a different batch_size
+                break
+
+            model.decoder.lstm.reset_states(states=[np.zeros((target.shape[0],512)), np.zeros((target.shape[0],512))])
             losses = model.train_step((img_tensor, target))
             sum_loss, t_loss = losses.values()
             total_loss += t_loss

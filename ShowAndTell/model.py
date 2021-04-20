@@ -7,9 +7,10 @@ import time
 import tensorflow as tf
 from dataclass import Dataclass
 
-
 class Encoder(tf.keras.Model):
-
+    """Encoder Model.
+    Takes 2nd last layer of CNN and maps it to a embedding vector
+    """
     def __init__(self, embedding_dim):
         super(Encoder, self).__init__()
         self.fc = tf.keras.layers.Dense(embedding_dim)
@@ -23,14 +24,18 @@ class Decoder(tf.keras.Model):
 
     def __init__(self, embedding_dim, units, vocab_size):
         super(Decoder, self).__init__()
+        #inp = tf.keras.layers.Input(shape=(1,512), batch_size = 128)
         self.units = units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
-        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform') 
+        # LSTM layer
+        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=True, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#(inp)
 
-        # unit forget bias set forgetting bias to 1 at initilisation
-
+        # Fully connected layers to convert from embedding dim to vocab
         self.fc1 = tf.keras.layers.Dense(units)
         self.fc2 = tf.keras.layers.Dense(vocab_size)
+
+    def embed(self, x):
+        return self.embedding(x)
 
     def call(self, data, training = False):
         """
@@ -40,6 +45,8 @@ class Decoder(tf.keras.Model):
 
             I just realised I always feed the image into the lstm at every time step
             the show and tell paper only feed it in at the start 
+
+            TODO: HOLY SHIT IM NOT PASSING THE PREVIOSU HIDDEN STATE
         """
         x, hidden = data
         
@@ -114,14 +121,14 @@ class CaptionGenerator(tf.keras.Model):
 
             features = self.encoder(img_tensor)
 
-
+            ## Input features into LSTM
             features = tf.expand_dims(features, 1)
             predictions, hidden = self.decoder((features, hidden))
             loss += self.loss_function(target[:,0], predictions)
 
-            for i in range(0, target.shape[1]):
+            for i in range(1, target.shape[1]):
 
-                x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
+                x = self.decoder.embedding(dec_input)# input -> embedding layer 
                 predictions, hidden = self.decoder((x, hidden))
                 loss += self.loss_function(target[:,i], predictions)
 
@@ -130,6 +137,7 @@ class CaptionGenerator(tf.keras.Model):
                 # teacher forcing
                 dec_input = tf.expand_dims(target[:,i], 1)
 
+        #self.decoder.lstm.reset_states(states=[np.zeros((target.shape[0],1,512)),np.zeros((target.shape[0],1,512))]) # reset lstm hidden state (used with stateful=True)
 
         total_loss = (loss / int(target.shape[1]))
 
@@ -142,6 +150,45 @@ class CaptionGenerator(tf.keras.Model):
         #return {m.name: m.result() for m in self.metrics}
         #return loss, total_loss
         return {"loss": loss, "norm loss": total_loss}
+
+    #@tf.function
+    def train_step2(self, img_cap):
+        """Implemention of train_step but without for-loop (TODO: implement)
+        This would make it easier in that we would no longer need the stateful=True arrtribute in the LSTM init 
+        also would probably be faster 
+
+        Instead of taking a single word(bs,1,5001) -> embedding it(bs,1,256) -> passing it into lstm (bs,1,512)
+        Take all words(bs,260,5001) -> embed them(bs,260,256) -> lstm(bs,260,512)      -- 260=max_length (all captions are paddd to 260)
+        """
+        # decompose dataset item
+        img_tensor, target = img_cap
+
+        loss = 0
+
+        hidden = self.decoder.reset_state(batch_size = target.shape[0]) 
+
+        dec_input = target #tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
+
+        with tf.GradientTape() as tape:
+
+            ## feature embedding
+            features = self.encoder(img_tensor)
+            # pass features into lstm
+            features = tf.expand_dims(features, 1)
+            predictions, hidden = self.decoder((features, hidden))
+            #_ = self.loss_function(target[:,:-1], predictions)
+
+            ## Word embedding | pass whole sentence into LSTM
+            x = self.decoder.embed(dec_input) 
+            print("x", x.shape)
+            predictions, hidden = self.decoder((x, hidden))
+            loss += self.loss_function(target, predictions)
+            
+            total_loss = (loss / int(target.shape[1]))
+
+        return {"loss": loss, "norm loss": total_loss}
+
+
 
     @tf.function
     def test_step(self, data):
@@ -162,7 +209,7 @@ class CaptionGenerator(tf.keras.Model):
         _, hidden = self.decoder((features, hidden))
         #loss += self.loss_function(target[:,0], prediction)
         
-        for i in range(0, self.max_length):
+        for i in range(1, self.max_length):
             x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
             prediction, hidden = self.decoder((x, hidden))
             loss += self.loss_function(target[:,i], prediction) 
