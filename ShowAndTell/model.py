@@ -28,14 +28,11 @@ class Decoder(tf.keras.Model):
         self.units = units
         self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim)
         # LSTM layer
-        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=False, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#(inp)
+        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=False, return_state=False, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#(inp)
 
         # Fully connected layers to convert from embedding dim to vocab
         self.fc1 = tf.keras.layers.Dense(units)
         self.fc2 = tf.keras.layers.Dense(vocab_size)
-
-    def embed(self, x):
-        return self.embedding(x)
 
     def call(self, data, training = False):
 
@@ -50,7 +47,7 @@ class Decoder(tf.keras.Model):
         x = tf.concat([feat, x], axis = 1)
 
         ## output = (128, 261, 512)
-        output, _, _ = self.lstm(x)
+        output = self.lstm(x)
 
         ## x = (128, 261, 512)
         x = self.fc1(output)
@@ -60,51 +57,6 @@ class Decoder(tf.keras.Model):
 
         return x
 
-    def old_call(self, data, training = False):
-        """
-            x        - a caption (word) - (bs, 1)
-            features - image feature    - (bs, 256)
-            hidden   - previous state   - (bs, 512)
-
-            I just realised I always feed the image into the lstm at every time step
-            the show and tell paper only feed it in at the start 
-
-            TODO: HOLY SHIT IM NOT PASSING THE PREVIOSU HIDDEN STATE
-        """
-        x, hidden = data
-        
-        # get the sentence embedding
-        #x = self.embedding(x)
-        
-        # input to lstm should == (bs, 1, 512)
-
-        # concatenate with image embedding
-        # x = tf.concat([tf.expand_dims(features, 1), x], axis = -1)
-
-        # pass through RNN
-        output, state, _ = self.lstm(x) #(64, 1, 512) (64,512) (64,512)
-
-        print("---lstm---")
-        print("output", output.shape)
-        print("state", state.shape)
-        print("carry", carry.shape)
-
-        # return-shape = (bs, 1, units) = (64, 1, 512)
-        x = self.fc1(output)
-
-        print("x", x.shape)
-        print("---------")
-
-        # reshape to (64, 512)
-        #x = tf.reshape(x, (-1, x.shape[2]))
-
-        #print("x reshape", x.shape)
-
-        # map RNN output to vocab
-        x = self.fc2(x)
-
-        return x, state
-    
     def reset_state(self, batch_size):
         return tf.zeros((batch_size, self.units))
 
@@ -119,90 +71,20 @@ class CaptionGenerator(tf.keras.Model):
         self.tokenizer = tokenizer
         self.max_length = max_length
 
-    #def compile(self, optimizer, loss_fn):
-    #    # Overwrite Keras.compile method
-    #    super(Decoder, self).compile()
-    #    self.optimizer = optimizer
-    #    self.loss_object = loss_fn
-    #    #self.metrics = metric
-
-    @tf.function
-    def old_train_step(self, img_cap: tuple):
-        """
-        Overwrites the keras.fit train_step
-        https://www.tensorflow.org/guide/keras/customizing_what_happens_in_fit
-
-        On the first step we want to pass in the image embedding.
-        On every subsequent step we want to pass in the decoded word 
-
-        TODO:
-            can this step be done without forloop as in: www.tensorflow.org/addons/tutorials/networks_seq2seq_nmt
-
-        """
-
-        # decompose dataset item
-        img_tensor, target = img_cap
-
-        loss = 0
-
-        hidden = self.decoder.reset_state(batch_size = target.shape[0]) 
-
-        dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
-
-        with tf.GradientTape() as tape:
-
-            features = self.encoder(img_tensor)
-
-            ## Input features into LSTM
-            features = tf.expand_dims(features, 1)
-            predictions, hidden = self.decoder((features, hidden))
-            loss += self.loss_function(target[:,0], predictions)
-
-            for i in range(1, target.shape[1]):
-
-                x = self.decoder.embedding(dec_input)# input -> embedding layer 
-                predictions, hidden = self.decoder((x, hidden))
-                loss += self.loss_function(target[:,i], predictions)
-
-                #self.compiled_metrics.update_state(target[:,i], predictions)
-
-                # teacher forcing
-                dec_input = tf.expand_dims(target[:,i], 1)
-
-        #self.decoder.lstm.reset_states(states=[np.zeros((target.shape[0],1,512)),np.zeros((target.shape[0],1,512))]) # reset lstm hidden state (used with stateful=True)
-
-        total_loss = (loss / int(target.shape[1]))
-
-        trainable_variables = self.decoder.trainable_variables + self.encoder.trainable_variables 
-
-        gradients = tape.gradient(loss, trainable_variables)
-        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
-
-
-        #return {m.name: m.result() for m in self.metrics}
-        #return loss, total_loss
-        return {"loss": loss, "norm loss": total_loss}
-
     @tf.function
     def train_step(self, img_cap):
-        """Implemention of train_step but without for-loop (TODO: implement)
+        """Main train step 
         This would make it easier in that we would no longer need the stateful=True arrtribute in the LSTM init 
         also would probably be faster 
 
         Instead of taking a single word(bs,1,5001) -> embedding it(bs,1,256) -> passing it into lstm (bs,1,512)
         Take all words(bs,260,5001) -> embed them(bs,260,256) -> lstm(bs,260,512)      -- 260=max_length (all captions are paddd to 260)
         """
-        print("### TRACING ###")
+        #print("## Tracing graph ##")
         # decompose dataset item
         img_tensor, target = img_cap
 
         loss = 0
-
-        #hidden = self.decoder.reset_state(batch_size = target.shape[0]) 
-
-        #dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
-        #dec_input = target
-
 
         with tf.GradientTape() as tape:
 
