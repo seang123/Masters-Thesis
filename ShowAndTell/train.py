@@ -17,6 +17,7 @@ import datetime
 from dataclass import Dataclass
 import traceback
 from contextlib import redirect_stdout 
+from pympler import asizeof as sizeof
 
 
 gpu_to_use = 2
@@ -27,12 +28,12 @@ for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
-try:
-    tf.config.set_logical_device_configuration(
-        physical_devices[0],
-        [tf.config.LogicalDeviceConfiguration(memory_limit=9000)])
-except Exception as e:
-    pass
+#try:
+#    tf.config.set_logical_device_configuration(
+#        physical_devices[0],
+#        [tf.config.LogicalDeviceConfiguration(memory_limit=9000)])
+#except Exception as e:
+#    pass
 
 ## use half floating numbers 
 #tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -53,7 +54,7 @@ img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.
 
 
 ## Parameters
-BATCH_SIZE = 128
+BATCH_SIZE = 4
 BUFFER_SIZE = 1000
 embedding_dim = 512 
 units = 512 # recurrent units
@@ -154,6 +155,10 @@ training_loss, training_batch_loss, testing_loss, testing_batch_loss = dataclass
 
 ## Store validation data
 dataclass.save_val_keys(f"{data_path}img_name_val.txt", img_name_val)
+
+for (batch, (img_tensor, target)) in dataset.enumerate():
+    losses = model.train_step((img_tensor, target))
+    break
 
 ## Main Loop
 def main(gpu = 2):
@@ -256,9 +261,9 @@ def save_model_sum():
 if __name__ == '__main__':
     try:
         #train_loss, train_batch_loss = 
-        #main()
+        main()
         #tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir,profile_batch='100, 105')
-        model.fit(dataset, epochs = 1, steps_per_epoch=num_steps)#, callbacks=[tb_callback])
+        #model.fit(dataset, epochs = 1, steps_per_epoch=num_steps)#, callbacks=[tb_callback])
     except Exception as e:
         err_str = f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
         print(err_str)

@@ -71,6 +71,24 @@ class CaptionGenerator(tf.keras.Model):
         self.tokenizer = tokenizer
         self.max_length = max_length
 
+    def train_step_old(self, img_cap):
+
+        img_tensor, target = img_cap
+
+        loss = 0
+
+        hidden = self.decoder.reset_state(batch_size = target.shape[0])
+        dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']]* target.shape[0], 1)
+
+        with tf.GradientTape() as tape:
+
+            features = self.encoder(img_tensor)
+            features = tf.expand_dims(features, 1)
+            
+            
+
+
+
     @tf.function
     def train_step(self, img_cap):
         """Main train step 
