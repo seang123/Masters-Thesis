@@ -106,7 +106,8 @@ class Dataclass():
 
     def max_length(self):
         # return length of longest caption
-        return max(len(i) for x in self.annt_dict.values() for i in x)
+        return 75
+        #return max(len(i) for x in self.annt_dict.values() for i in x)
 
     @staticmethod
     def load_loss(path):

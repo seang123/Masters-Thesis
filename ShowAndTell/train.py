@@ -18,6 +18,7 @@ from dataclass import Dataclass
 import traceback
 from contextlib import redirect_stdout 
 from pympler import asizeof as sizeof
+import json
 
 
 gpu_to_use = 2
@@ -48,20 +49,25 @@ top_k = 5000
 dataclass = Dataclass(73000, top_k)
 
 tokenizer = dataclass.get_tokenizer()
+## store tokenizer configuration to string
+with open("tokenizer_config.txt", "w") as f:
+    json.dump(tokenizer.to_json(), f)
+
 max_length = dataclass.max_length()
+sys.exit(0)
 
 img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.95)
 
 
 ## Parameters
-BATCH_SIZE = 4
+BATCH_SIZE = 64
 BUFFER_SIZE = 1000
 embedding_dim = 512 
 units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 num_steps_test = len(img_name_val) // BATCH_SIZE
-EPOCHS = 10
+EPOCHS = 2
 save_checkpoints = True 
 save_data = True
 
@@ -156,10 +162,6 @@ training_loss, training_batch_loss, testing_loss, testing_batch_loss = dataclass
 ## Store validation data
 dataclass.save_val_keys(f"{data_path}img_name_val.txt", img_name_val)
 
-for (batch, (img_tensor, target)) in dataset.enumerate():
-    losses = model.train_step((img_tensor, target))
-    break
-
 ## Main Loop
 def main(gpu = 2):
     print(f"Training for {EPOCHS}({start_epoch}) epochs")
@@ -173,6 +175,9 @@ def main(gpu = 2):
         
         pre_batch_time = 0
         for (batch, (img_tensor, target)) in dataset.enumerate():
+
+            #if target.shape[0] != BATCH_SIZE: # discard last batch 
+            #    continue
 
             losses = model.train_step((img_tensor, target))
             sum_loss, t_loss = losses.values()
@@ -256,6 +261,7 @@ def save_model_sum():
         f.write(f"Total training epochs: {EPOCHS}")
         f.write(f"\nTraining started at: {train_start_time}")
         f.write(f"\nTraining completed at: {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
+        tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
 if __name__ == '__main__':
