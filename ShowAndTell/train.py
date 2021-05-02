@@ -54,7 +54,6 @@ with open("tokenizer_config.txt", "w") as f:
     json.dump(tokenizer.to_json(), f)
 
 max_length = dataclass.max_length()
-sys.exit(0)
 
 img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.95)
 
@@ -67,7 +66,7 @@ units = 512 # recurrent units
 vocab_size = top_k + 1
 num_steps = len(img_name_train) // BATCH_SIZE
 num_steps_test = len(img_name_val) // BATCH_SIZE
-EPOCHS = 2
+EPOCHS = 10
 save_checkpoints = True 
 save_data = True
 
@@ -83,7 +82,7 @@ def map_func(img_idx, cap):
     img_tensor = img_features[int(img_idx),:]
     return img_tensor, cap
 
-dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
+dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train)) # (idx, caption as vector)
 
 dataset = dataset.map(lambda item1, item2: tf.numpy_function(
     map_func, [item1, item2], [tf.float32, tf.int32]),

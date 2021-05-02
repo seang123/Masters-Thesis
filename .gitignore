@@ -160,3 +160,8 @@ figures/
 /ShowAndTell/Figures
 /ShowAndTell/test_output
 /ShowAndTell/data
+
+# ThinkAndTell folder stuff
+/ThinkAndTell/data
+/ThinkAndTell/backup_checkpoints
+/ThinkAndTell/notes.md
