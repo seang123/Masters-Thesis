@@ -17,6 +17,8 @@ import datetime
 from dataclass import Dataclass
 import traceback
 from contextlib import redirect_stdout 
+from pympler import asizeof as sizeof
+import json
 
 
 gpu_to_use = 2
@@ -27,23 +29,37 @@ for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
-## Start telegram bot
+#try:
+#    tf.config.set_logical_device_configuration(
+#        physical_devices[0],
+#        [tf.config.LogicalDeviceConfiguration(memory_limit=9000)])
+#except Exception as e:
+#    pass
+
+## use half floating numbers 
+#tf.keras.mixed_precision.set_global_policy('mixed_float16')
+
 bot = tb.Tensorbot()
+## Start telegram bot
 gpu_var   = bot.register_variable("GPU", "", autoupdate=True)
 epoch_var = bot.register_variable("", "", autoupdate=True)
 err_var   = bot.register_variable("ERROR", "", autoupdate=True)
 
-top_k = 6000
+top_k = 5000
 dataclass = Dataclass(73000, top_k)
 
 tokenizer = dataclass.get_tokenizer()
+## store tokenizer configuration to string
+with open("tokenizer_config.txt", "w") as f:
+    json.dump(tokenizer.to_json(), f)
+
 max_length = dataclass.max_length()
 
 img_name_train, cap_train, img_name_val, cap_val = dataclass.train_test_split(0.95)
 
 
 ## Parameters
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 BUFFER_SIZE = 1000
 embedding_dim = 512 
 units = 512 # recurrent units
@@ -66,7 +82,7 @@ def map_func(img_idx, cap):
     img_tensor = img_features[int(img_idx),:]
     return img_tensor, cap
 
-dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train))
+dataset = tf.data.Dataset.from_tensor_slices((img_name_train, cap_train)) # (idx, caption as vector)
 
 dataset = dataset.map(lambda item1, item2: tf.numpy_function(
     map_func, [item1, item2], [tf.float32, tf.int32]),
@@ -150,13 +166,6 @@ def main(gpu = 2):
     print(f"Training for {EPOCHS}({start_epoch}) epochs")
     epoch_var.update(f"Starting Training for {EPOCHS}({start_epoch}) epochs")
 
-    #training_loss = []
-    #training_batch_loss = []
-
-    # Initial pass to build model (needed because of stateful=True and non-constant batch_size)
-    for (batch, (img_tensor, target)) in dataset.enumerate():
-        model.train_step((img_tensor, target))
-        break
 
     for epoch in range(start_epoch, EPOCHS):
         start = time.time()
@@ -166,11 +175,9 @@ def main(gpu = 2):
         pre_batch_time = 0
         for (batch, (img_tensor, target)) in dataset.enumerate():
 
-            if target.shape[0] != BATCH_SIZE: # because of stateful=True its easier to just skip the last few samples rather than creating
-                # a new model with a different batch_size
-                break
+            #if target.shape[0] != BATCH_SIZE: # discard last batch 
+            #    continue
 
-            model.decoder.lstm.reset_states(states=[np.zeros((target.shape[0],512)), np.zeros((target.shape[0],512))])
             losses = model.train_step((img_tensor, target))
             sum_loss, t_loss = losses.values()
             total_loss += t_loss
@@ -253,6 +260,7 @@ def save_model_sum():
         f.write(f"Total training epochs: {EPOCHS}")
         f.write(f"\nTraining started at: {train_start_time}")
         f.write(f"\nTraining completed at: {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
+        tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
 if __name__ == '__main__':
@@ -260,7 +268,7 @@ if __name__ == '__main__':
         #train_loss, train_batch_loss = 
         main()
         #tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir,profile_batch='100, 105')
-        #model.fit(dataset, epochs = 1, steps_per_epoch=num_steps, callbacks=[tb_callback])
+        #model.fit(dataset, epochs = 1, steps_per_epoch=num_steps)#, callbacks=[tb_callback])
     except Exception as e:
         err_str = f"Caught error in main training loop. {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}"
         print(err_str)

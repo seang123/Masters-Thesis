@@ -5,7 +5,7 @@ sys.path.append('/home/seagie/NSD/Code/Masters-Thesis')
 import utils
 import time
 import tensorflow as tf
-from dataclass import Dataclass
+#from dataclass import Dataclass
 
 class Encoder(tf.keras.Model):
     """Encoder Model.
@@ -124,12 +124,11 @@ class CaptionGenerator(tf.keras.Model):
 
     @tf.function
     def train_step(self, img_cap):
-        """Main train step 
-        This would make it easier in that we would no longer need the stateful=True arrtribute in the LSTM init 
-        also would probably be faster 
+        """Train step 
 
-        Instead of taking a single word(bs,1,5001) -> embedding it(bs,1,256) -> passing it into lstm (bs,1,512)
-        Take all words(bs,260,5001) -> embed them(bs,260,256) -> lstm(bs,260,512)      -- 260=max_length (all captions are paddd to 260)
+        Train whole network on an image + target caption input 
+
+        Need to be using stateful = False in the lstm init
         """
         #print("## Tracing graph ##")
         # decompose dataset item
@@ -165,6 +164,10 @@ class CaptionGenerator(tf.keras.Model):
 
     @tf.function
     def test_step(self, data):
+        """ Testing step
+
+        Test the network on a image + target caption input
+        """
 
         img_tensor, target = data
 

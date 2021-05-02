@@ -8,7 +8,9 @@ sys.path.append('/home/seagie/NSD/Code/Masters-Thesis/')
 import utils
 import pandas as pd
 from model import Encoder, Decoder, CaptionGenerator
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # 0 everything, 3 nothing
 import tensorflow as tf
+import json
 
 
 # Allow memory growth on GPU devices 
@@ -40,8 +42,8 @@ class Evaluate():
 
         # Model Parameter settings TODO: load automatically from modelsummary file
         embedding_dim = 512 # was 256
-        units = 512 # was 512
-        self.top_k = 6000
+        self.units = 512 # was 512
+        self.top_k = 5000
         vocab_size = self.top_k + 1
 
         # load tokenizer
@@ -49,7 +51,7 @@ class Evaluate():
 
         # init the Network
         self.encoder = Encoder(embedding_dim)
-        self.decoder = Decoder(embedding_dim, units, vocab_size)
+        self.decoder = Decoder(embedding_dim, self.units, vocab_size, use_stateful=True)
         self.model = CaptionGenerator(self.encoder, self.decoder, self.tokenizer, self.max_length())
 
         # load Network weights
@@ -83,6 +85,8 @@ class Evaluate():
 
         if image_id == None:
             image_id = np.random.choice(self.val_keys, 1)[0]
+
+        print(f"Generating caption for image {image_id}.")
        
         hidden = self.decoder.reset_state(batch_size=1)
 
@@ -98,37 +102,84 @@ class Evaluate():
             #image_features = tf.reshape(image_features, (image_features.shape[0],-1,image_features.shape[3]))
             image_features = tf.reshape(image_features, (1, 4096))
 
-
-        
-
-
-        dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']], 0)
-        result = []
         max_length = self.max_length() 
 
-        # pass image through encoder and get first word
+        # input should start as 1xN vector of zeros with only the first idx having the words '<start>'
+        dec_input = [self.tokenizer.word_index['<start>']]
+        paddings = tf.constant([[0,max_length-1]])
+        dec_input = tf.pad(dec_input, paddings, "CONSTANT")
+        dec_input = tf.expand_dims(dec_input, 0)
+
+        ## first pass should include the image 
         features = self.model.encoder(image_features)
-        features = tf.expand_dims(features,1)
-        predictions, hidden = self.model.decoder((features, hidden))
-        predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
-        result.append(self.tokenizer.index_word[predicted_id])
-        if result[0] == '<end>':
-            return image_id, result, self.get_captions(image_id)
 
-        # get the rest of the sentence
-        for i in range(1, max_length):
-            x = self.model.decoder.embedding(dec_input)
-            predictions, hidden = self.model.decoder((x, hidden))
 
-            predicted_id = tf.random.categorical(predictions, 1)[0][0].numpy()
-            result.append(self.tokenizer.index_word[predicted_id])
+        result = []
 
-            if self.tokenizer.index_word[predicted_id] == '<end>':
+        for i in range(0, max_length):
+            # 1. pass in the image
+            # 1.1 get hidden state
+            
+            # 2. create new lstm with hidden state
+            # 2.1 get prediction, new hidden state
+            # 2.2 repeat from 2.0
+            if i == 0:
+                pred, hidden, carry = self.model.decoder((dec_input, features), training=True) # (1,75,5001)(1,512)(1,512)
+                state = pred[0, i, :]
+                state = tf.expand_dims(state, 0)
+            else:
+                lstm_in = self.model.decoder.embedding(dec_input)
+                pred, hidden, carry = tf.keras.layers.LSTM(units=self.units, return_sequences=True, return_state=True)(lstm_in, initial_state=[hidden, carry]) # Not yet tested with return_sequences=True
+                pred = self.model.decoder.fc1(pred)
+                pred = self.model.decoder.fc2(pred)
+
+            #state = tf.expand_dims(state, 0)
+            pred_id = tf.random.categorical(state, 1)[0][0].numpy()
+            # add the last predicted word to the input
+            dec_input = dec_input.numpy()
+            dec_input[0, i] = pred_id
+            dec_input = tf.convert_to_tensor(dec_input)
+            pred_word = self.tokenizer.index_word[pred_id]
+            result.append(pred_word)
+            if pred_word == '<end>':
                 return image_id, result, self.get_captions(image_id)
 
-            dec_input = tf.expand_dims([predicted_id], 0)
+        return image_id, result, self.get_captions(image_id)
 
-        return image_id, result, self.get_captions(image_id) 
+    def gen_prediction2(self, image_id=None):
+
+        if image_id == None:
+            image_id = np.random.choice(self.val_keys, 1)[0]
+
+        # load CNN output
+        image_features = self.get_img_feature(image_id)
+        print("img features:", image_features.shape)
+        #image_features = tf.reshape(image_features, (image_features.shape[0],-1,image_features.shape[3]))
+        image_features = tf.reshape(image_features, (1, 4096))
+        features = self.model.encoder(image_features)
+
+        dec_input = [self.tokenizer.word_index['<start>']]
+        dec_input = tf.expand_dims(dec_input, 0)
+        print("dec_input", dec_input)
+        
+        result = []
+        for i in range(0, self.max_length()):
+            pred, hidden, carry = self.model.decoder((dec_input, features), training=True)
+            word = tf.expand_dims(pred[0, i, :], 0)
+
+            pred_id = tf.random.categorical(word, 1)[0][0].numpy()
+            dec_input = dec_input.numpy()
+            print("pred_id", pred_id)
+            dec_input = np.append(dec_input, np.array([[pred_id]]), 0)
+            dec_input = tf.convert_to_tensor(dec_input)
+            pred_word = self.tokenizer.index_word[pred_id]
+            result.append(pred_word)
+            if pred_word == '<end>':
+                return image_id, result, self.get_captions(image_id)
+
+        return image_id, result, self.get_captions(image_id)
+
+
 
     def create_tokenizer(self):
         """
@@ -141,12 +192,20 @@ class Evaluate():
         for i in range(0, len(self.val_keys)):
             test_captions.extend(self.annt_dict[str(i)])
 
-        self.tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = self.top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
-        self.tokenizer.fit_on_texts(test_captions)
+        if os.path.exists("./tokenizer_config.txt"):
+            with open('./tokenizer_config.txt') as json_file:
+                json_string = json.load(json_file)
+                self.tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json_string)
+                print("tokenizer loaded from config file")
+        else:
+            self.tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = self.top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
 
-        self.tokenizer.word_index['<pad>'] = 0
-        self.tokenizer.index_word[0] = '<pad>'
+            self.tokenizer.fit_on_texts(test_captions)
+
+            self.tokenizer.word_index['<pad>'] = 0
+            self.tokenizer.index_word[0] = '<pad>'
+            print("new tokenizer created")
 
 
         # Create the tokenized vectors
@@ -159,7 +218,8 @@ class Evaluate():
 
     def max_length(self):
         # returns length of longest caption
-        return max(len(i) for x in self.annt_dict.values() for i in x)
+        return 75 
+        #return max(len(i) for x in self.annt_dict.values() for i in x)
 
 
     def get_img_feature(self, image_id):
