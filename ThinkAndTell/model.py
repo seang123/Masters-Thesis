@@ -14,9 +14,17 @@ class Encoder(tf.keras.Model):
     def __init__(self, embedding_dim):
         super(Encoder, self).__init__()
         self.fc = tf.keras.layers.Dense(embedding_dim)
+        self.fc2 = tf.keras.layers.Dense(1024)
 
     def call(self, x):
+        return tf.nn.relu(self.fc(x))
+
+    def call_new(self, x):
+        x = tf.nn.dropout(x, rate = 0.1)
+        x = tf.nn.relu(self.fc2(x))
+        x = tf.nn.dropout(x, rate = 0.6)
         x = tf.nn.relu(self.fc(x))
+        x = tf.nn.dropout(x, rate = 0.2)
         return x
 
 
@@ -143,12 +151,6 @@ class CaptionGenerator(tf.keras.Model):
 
             predictions, _, _ = self.decoder((target, features), training=True)
 
-            
-            #ls = []
-            #for i in target[0,:].numpy():
-            #    ls.append(self.tokenizer.index_word[i])
-            #print(ls)
-            
             ## Loop through the sentences to get the loss
             for i in range(1, target.shape[1]):
                 loss += self.loss_function(target[:,i], predictions[:,i])

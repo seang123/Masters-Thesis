@@ -3,6 +3,9 @@ import re
 import time
 import datetime
 
+def get_smi_out():
+    x = sp.run(["nvidia-smi"], capture_output=True)
+    return x.stdout.decode("utf-8")
 
 def get_memory_usage():
     """ Query nvidia-smi for current gpu memory usage
@@ -11,8 +14,7 @@ def get_memory_usage():
         list of memory usages values as strings
     """
     # run nvidia-smi command and capture output
-    x = sp.run(["nvidia-smi"], capture_output=True)
-    data = x.stdout.decode("utf-8")
+    data = get_smi_out()
 
     # match mem usage string
     y = re.findall(r'(\d+MiB)', data)
@@ -26,6 +28,23 @@ def get_memory_usage():
         mem.append(re.search(r'\d+', i)[0])
 
     return mem
+
+def get_volatile_util():
+    """Returns volatile-gpu usage percentage
+
+    Sometimes gpu-fan % shows 'ERR!' which results in this function not returning proper values for each gpu
+    """
+    data = get_smi_out()
+
+    y = re.findall(r'(\d+%)', data)
+
+    util_usage = [y[i] for i in range(0, len(y)) if i in [1,3,5]]
+
+    util = []
+    for i in util_usage:
+        util.append(re.search(r'\d+', i)[0])
+
+    return util
 
 
 def monitor():
@@ -43,7 +62,7 @@ def monitor():
                 mem_blocked = False
                 gpu_to_use = i
                 ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-                print(f"\nTraining on gpu {i} at {ts}")
+                print(f"\n## Training on gpu {i} at {ts} ##")
                 break
 
         if mem_blocked:
@@ -54,6 +73,11 @@ def monitor():
 
     return gpu_to_use
 
+
 if __name__ == '__main__':
+
     mem = get_memory_usage()
-    print(mem)
+
+    util = get_volatile_util()
+
+    print(list(zip(mem, util)))

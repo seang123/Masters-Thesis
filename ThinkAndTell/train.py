@@ -20,23 +20,26 @@ from load_dataset import load_dataset
 from param import config as c
 import pandas as pd
 import nibabel as nb
+#import psutils
 from nv_monitor import monitor
 from parameters import parameters as param
 print("imports complete")
+#export TF_CPP_MIN_LOG_LEVEL="3"
 
 gpu_to_use = monitor()
 #gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
-for i in range(0, len(physical_devices)):
-    tf.config.experimental.set_memory_growth(physical_devices[i], True)
+#for i in range(0, len(physical_devices)):
+#    tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
 #### HYPER PARAMETERS ####
 BATCH_SIZE = param['BATCH_SIZE']
 BUFFER_SIZE = param['BUFFER_SIZE']
+data_path = f"./data/"
 test_set_size = 1000
 top_k = param['top_k']
 vocab_size = top_k + 1
@@ -49,8 +52,8 @@ units = param['units']
 print("> loading data")
 
 
-if os.path.exists("data/visual_mask_rh.npy"):
-    with open('data/visual_mask_lh.npy', 'rb') as f, open('data/visual_mask_rh.npy', 'rb') as g:
+if os.path.exists("masks/visual_mask_rh.npy"):
+    with open('masks/visual_mask_lh.npy', 'rb') as f, open('masks/visual_mask_rh.npy', 'rb') as g:
         visual_mask_lh = np.load(f)
         visual_mask_rh = np.load(g)
         print(" > visual region masks loaded from file") 
@@ -157,18 +160,32 @@ def extend_func(a, b, c):
     c1 = np.tile(c, l).reshape((l, 1))
     return (a1, b1, c1, cap_vector)
 
-dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
 
-## Randomly sample from either dataset (gives non-deterministic output)
-#dataset_cmp = tf.data.experimental.sample_from_datasets([dataset_unq, dataset_shr]) 
-#dataset_cmp = dataset_cmp.shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+# TODO: split test/validation set here. Doing it afterwards is harder since its possible that brain-data has already been seen, jsut for a different
+# caption target
+dataset_test = dataset_cmp.take(test_set_size).map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
+dataset_test = dataset_test.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
 
-#dataset_cmp = dataset_cmp.shuffle(BUFFER_SIZE)
+## Save validation dataset
+tf.data.experimental.save(dataset_test, f"{data_path}test_dataset")
+
+dataset_train = dataset_cmp.skip(test_set_size).map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
+dataset_train = dataset_train.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+
+dataset_test = dataset_test.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+dataset_train = dataset_train.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+## Add the captions to the dataset 
+#dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
+#dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+
+## Do one large shuffle of the whole dataset and keep it constant
+#dataset_cmp = dataset_cmp.shuffle(BUFFER_SIZE, reshuffle_each_iteration=False)
 
 ## Split into train/test sets
-dataset_test = dataset_cmp.take(test_set_size).shuffle(BUFFER_SIZE, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
-dataset_train = dataset_cmp.skip(test_set_size).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+#dataset_test = dataset_cmp.take(test_set_size).shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+#dataset_train = dataset_cmp.skip(test_set_size).shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size = tf.data.experimental.AUTOTUNE)
+
  
 
 print("> dataset created")
@@ -189,7 +206,6 @@ model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
 
 #### CHECKPOINTS ####
 
-data_path = f"./data/"
 ## Checkpoints handler
 checkpoint_path = f"./checkpoints/train/"
 ckpt = tf.train.Checkpoint(encoder=encoder,
@@ -209,8 +225,10 @@ else:
     print(f"No checkpoint loaded.")
 
 
+
 ### MORE HYPTER-PARAMETERS ###
 num_steps = len(captions)//BATCH_SIZE
+num_steps_test = test_set_size // BATCH_SIZE
 EPOCHS = param['EPOCHS']
 save_checkpoints = True
 save_data = True
@@ -225,10 +243,13 @@ testing_loss =[]
 testing_batch_loss = []
 
 test_images_idx = []
+memory_usage = [] # in MiB
 
 def main():
 
     for epoch in range(start_epoch, EPOCHS):
+        #memory_usage.append(psutil.Process().memory_info().rss / (1024**2))
+
         epoch_start = time.time()
 
         total_epoch_loss = 0
@@ -248,6 +269,9 @@ def main():
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
                 pre_batch_time = time.time() - epoch_start
 
+        print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
+
+        pre_train_time = time.time()
         for (batch, (betas, idx, img, cap)) in dataset_test.enumerate():
             losses = model.test_step((betas, cap))
             l1, l2 = losses.values()
@@ -256,17 +280,16 @@ def main():
             testing_loss.append(l2)
             testing_batch_loss.append(l1)
 
-            print("batch:", batch)
 
-            if batch % 100 == 0 and batch != 0:
-                print(f"Test  {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
 
             # on the first epoch save the test image keys for later analysis
             if epoch == 0:
                 test_images_idx.append(img.numpy())
 
 
-        print(f"Epoch {epoch} complete. | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
+        print(f"Test  {epoch} | Loss {(total_epoch_loss_test/num_steps_test):.4f} | {(time.time()-pre_train_time):.2f} sec")
+
+        print(f"--- Complete {epoch} ---")
 
         if save_checkpoints: 
             ckpt_manager.save()
@@ -276,12 +299,20 @@ def main():
 def save_loss():
     t_loss = np.array(training_loss)
     t_b_loss = np.array(training_batch_loss)
+
+    t_loss_test = np.array(testing_loss)
+    t_b_loss_test = np.array(testing_batch_loss)
     with open(f'{data_path}loss_data.npz', 'wb') as f:
-        np.savez(f, xtrain=t_loss, ytrain=t_b_loss)
+        np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=t_loss_test, ytest=t_b_loss_test)
 
     with open(f'{data_path}test_img_keys.txt', 'w') as f:
-        for k in test_images_idx:
+        test_keys = [i for sublist in test_images_idx for i in sublist]
+        for k in test_keys:
             f.write(str(k) + "\n")
+
+    #with open(f'{data_path}memory_usage.txt', 'w') as f:
+    #    for k in memory_usage:
+    #        f.write(str(k) + "\n")
 
 def save_model_sum():
     with open(f'{data_path}modelsummary.txt', 'w') as f:
@@ -317,7 +348,6 @@ if __name__ == '__main__':
             save_loss()
             print("Loss data saved")
         except Exception as e:
-            raise e
             print("Failed to save loss data")
 
     print("Done.")
