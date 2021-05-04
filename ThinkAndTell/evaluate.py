@@ -22,6 +22,9 @@ units = parameters['units']
 top_k = parameters['top_k']
 vocab_size = top_k + 1
 n_samples = 1 # nr. of images to test
+        
+nsd_loader = NSDAccess("/home/seagie/NSD")
+nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
 
 print("> preparing captions")
 ## get img_indicies for subj02
@@ -58,8 +61,8 @@ cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_leng
 #### DATASETS ####
 print(f"Creating dataset and sampling {n_samples} values")
 
-assert os.path.exists("data/visual_mask_rh.npy")
-with open('data/visual_mask_lh.npy', 'rb') as f, open('data/visual_mask_rh.npy', 'rb') as g:
+assert os.path.exists("masks/visual_mask_rh.npy")
+with open('masks/visual_mask_lh.npy', 'rb') as f, open('masks/visual_mask_rh.npy', 'rb') as g:
     visual_mask_lh = np.load(f)
     visual_mask_rh = np.load(g)
 
@@ -69,22 +72,22 @@ DIM = int(np.sum(visual_mask))
 def apply_mask(x, mask):
     return x[mask==1]
 
-dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
+#dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
 
 # returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
-dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
-dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
+#dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
+#dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
 
 ## Apply the mask to unique data
-dataset_unq = dataset_unq.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-dataset_unq = dataset_unq.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
+#dataset_unq = dataset_unq.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
+#dataset_unq = dataset_unq.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
 # Apply mask to shared data
-dataset_shr = dataset_shr.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-dataset_shr = dataset_shr.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
+#dataset_shr = dataset_shr.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
+#dataset_shr = dataset_shr.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
 
 
 ## Connect the unique and shared datasets into one ##
-dataset_cmp = dataset_unq.concatenate(dataset_shr)
+#dataset_cmp = dataset_unq.concatenate(dataset_shr)
 
 def extend_func(a, b, c):
     l = len(annt_dict[str(c)])
@@ -98,10 +101,15 @@ def extend_func(a, b, c):
     c1 = np.tile(c, l).reshape((l, 1))
     return (a1, b1, c1, cap_vector)
 
-dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+#dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
+#dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
 
-dataset_sample = dataset_cmp.shuffle(1000).batch(1).take(n_samples)
+#dataset_sample = dataset_cmp.shuffle(1000).batch(1).take(n_samples)
+
+
+dataset_load = tf.data.experimental.load("./data/test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(75,), dtype=tf.int32, name=None)))
+
+dataset_load = dataset_load.shuffle(1000)
 
 
 encoder = Encoder(embedding_dim)
@@ -127,9 +135,10 @@ if ckpt_manager.latest_checkpoint:
 
 def print_pred(pred, target):
     print("Generated:")
-    print(pred)
+    #print(pred)
+    print("  ", " ".join(pred))
     print("Target:")
-    print("".join(" ".join(list(map(lambda i: tokenizer.index_word[i], target[0,:].numpy()))).split("<pad>")[0])) # one-liner to print target caption
+    print("  ", "".join(" ".join(list(map(lambda i: tokenizer.index_word[i], target[0,:].numpy()))).split("<pad>")[0])) # one-liner to print target caption
 
 
 def forward(betas, dec_input):
@@ -190,13 +199,30 @@ def simple_eval(betas, target):
     print_pred(result, target)
     return
 
+def save_fig(img_id):
+    """ Save .png of image specified by key
+    """
+    img = nsd_loader.read_images(img_id)
+    fig = plt.figure()
+    plt.imshow(img)
+    plt.title(f"img: {img_id}")
+    plt.savefig(f"./test_output/test_img_{img_id}.png")
+    plt.close(fig)
 
-for (batch, (betas, idx, img, cap)) in dataset_sample.enumerate():
+
+for (batch, (betas, idx, img, cap)) in dataset_load.enumerate():
     
-    print("img", img.numpy())
+    a = tf.expand_dims(betas, 0)
+    b = tf.expand_dims(cap, 0)
+
+    img_id = img.numpy()[0]
+
     with tf.device('/cpu'):
-        predictions = simple_eval(betas, cap)
-    #evaluate(betas, cap)
+        predictions = simple_eval(a, b)
+
+    save_fig(img_id)
+
+    break
 
 
 
