@@ -166,3 +166,5 @@ figures/
 /ThinkAndTell/backup_checkpoints
 /ThinkAndTell/notes.md
 /ThinkAndTell/test_output
+/ThinkAndTell/SVD/data
+/ThinkAndTell/backups

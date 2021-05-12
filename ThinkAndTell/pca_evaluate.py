@@ -16,7 +16,7 @@ from load_dataset import load_dataset
 import argparse
 from nv_monitor import monitor
 
-gpu_to_use = monitor(8000)
+gpu_to_use = monitor(10000)
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -41,7 +41,7 @@ nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, 
 print("> preparing captions")
 ## get img_indicies for subj02
 img_keys = []
-with open("img_indicies.txt") as f:
+with open("./keys/img_indicies.txt") as f:
     lines = f.readlines()
     for line in lines:
         img_keys.append(int(line.rstrip('\n')))
@@ -84,45 +84,37 @@ DIM = int(np.sum(visual_mask))
 def apply_mask(x, mask):
     return x[mask==1]
 
-#dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
 
-# returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
-#dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
-#dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
-
-## Apply the mask to unique data
-#dataset_unq = dataset_unq.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-#dataset_unq = dataset_unq.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
-# Apply mask to shared data
-#dataset_shr = dataset_shr.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-#dataset_shr = dataset_shr.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
-
-
-## Connect the unique and shared datasets into one ##
-#dataset_cmp = dataset_unq.concatenate(dataset_shr)
-
-def extend_func(a, b, c):
+def extend_func(a, c):
     l = len(annt_dict[str(c)])
     caps = annt_dict[str(c)]
     seqs = tokenizer.texts_to_sequences(caps)
-    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length, padding='post') # (150102, 75)
+    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length, padding='post')
 
     # Properly reshape things to fit with the proper captions
     a1 = np.tile(a, l).reshape((l, a.shape[0]))
-    b1 = np.tile(b, l).reshape((l, 1))
     c1 = np.tile(c, l).reshape((l, 1))
-    return (a1, b1, c1, cap_vector)
-
-#dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-#dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
-
-#dataset_sample = dataset_cmp.shuffle(1000).batch(1).take(n_samples)
+    return (a1, c1, cap_vector)
 
 
-dataset_load = tf.data.experimental.load("./data/test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
+with open("./SVD/data/pca_subj02_betas_shr_vc.npy", "rb") as f:
+    betas_shr = np.load(f).astype(np.float32)
 
-dataset_load = dataset_load.shuffle(1000)
 
+shr_img_keys = []
+with open("./keys/shr_img_keys.txt", "r") as g:
+    g_lines = g.readlines()
+    for line in g_lines:
+        shr_img_keys.append(int(line))
+
+
+dataset_shr = tf.data.Dataset.from_tensor_slices((betas_shr, shr_img_keys))
+
+dataset_shr = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
+dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+
+dataset_test = dataset_shr.shuffle(1000)
+    
 
 encoder = Encoder(embedding_dim)
 #decoder = Decoder(embedding_dim, units, vocab_size, use_stateful=True)
@@ -225,7 +217,7 @@ def save_fig(img_id, pred):
 
 def main(args):
 
-    for (batch, (betas, idx, img, cap)) in dataset_load.enumerate():
+    for (batch, (betas, img, cap)) in dataset_test.enumerate():
 
         a = tf.expand_dims(betas, 0)
         b = tf.expand_dims(cap, 0)

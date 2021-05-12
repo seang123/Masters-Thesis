@@ -26,7 +26,7 @@ from parameters import parameters as param
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
-gpu_to_use = monitor(7000)
+gpu_to_use = monitor(10000)
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -99,7 +99,7 @@ def max_length():
 print("> preparing captions")
 ## get img_indicies for subj02
 img_keys = []
-with open("img_indicies.txt") as f:
+with open("./keys/img_indicies.txt") as f:
     lines = f.readlines()
     for line in lines:
         img_keys.append(int(line.rstrip('\n')))
@@ -130,52 +130,53 @@ print("> Tokenizer created!")
 ##### Create Dataset ######
 
 print("> Creating dataset")
-dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
 
-# returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
-dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
-dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
-
-
-## Apply the mask to unique data
-dataset_unq = dataset_unq.map(lambda a,b: (apply_mask(a, visual_mask),b))
-dataset_unq = dataset_unq.map(lambda a,b: (tf.ensure_shape(a, shape=(DIM,)),b))
-# Apply mask to shared data
-dataset_shr = dataset_shr.map(lambda a,b: (apply_mask(a, visual_mask),b))
-dataset_shr = dataset_shr.map(lambda a,b: (tf.ensure_shape(a, shape=(DIM,)),b))
-
-
-## Connect the unique and shared datasets into one ##
-#dataset_cmp = dataset_unq.concatenate(dataset_shr)
-
-def extend_func(a, b, c):
+def extend_func(a, c):
     l = len(annt_dict[str(c)])
     caps = annt_dict[str(c)]
     seqs = tokenizer.texts_to_sequences(caps)
-    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length(), padding='post') # (150102, 75)
+    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length(), padding='post')
 
     # Properly reshape things to fit with the proper captions
     a1 = np.tile(a, l).reshape((l, a.shape[0]))
-    b1 = np.tile(b, l).reshape((l, 1))
     c1 = np.tile(c, l).reshape((l, 1))
-    return (a1, b1, c1, cap_vector)
+    return (a1, c1, cap_vector)
 
 
-# TODO: split test/validation set here. Doing it afterwards is harder since its possible that brain-data has already been seen, jsut for a different
-# caption target
-dataset_test = dataset_shr.map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_test = dataset_test.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+#dataset_test = dataset_test.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+#dataset_train = dataset_train.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-## Save validation dataset
-if not os.path.exists(f"{data_path}test_dataset"):
-    tf.data.experimental.save(dataset_test, f"{data_path}test_dataset")
-    print(" > Test set saved to disk")
+with open("./SVD/data/pca_subj02_betas_shr_vc.npy", "rb") as f, open("./SVD/data/pca_subj02_betas_unq_vc.npy", "rb") as g:
+    betas_shr = np.load(f).astype(np.float32)
+    betas_unq = np.load(g).astype(np.float32)
 
-dataset_train = dataset_unq.map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_train = dataset_train.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+unq_img_keys = []
+shr_img_keys = []
+with open("./keys/unq_img_keys.txt", "r") as f, open("./keys/shr_img_keys.txt", "r") as g:
+    f_lines = f.readlines()
+    for line in f_lines:
+        unq_img_keys.append(int(line))
 
-dataset_test = dataset_test.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-dataset_train = dataset_train.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+    g_lines = g.readlines()
+    for line in g_lines:
+        shr_img_keys.append(int(line))
+
+
+
+dataset_unq = tf.data.Dataset.from_tensor_slices((betas_unq, unq_img_keys))
+dataset_shr = tf.data.Dataset.from_tensor_slices((betas_shr, shr_img_keys))
+
+dataset_unq = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
+dataset_unq = dataset_unq.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+
+dataset_shr = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
+dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+
+dataset_train = dataset_unq.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+dataset_test = dataset_shr.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+
+
 
 print(" > dataset created")
 
@@ -261,7 +262,9 @@ def main():
         total_epoch_loss_test = 0
         
         pre_batch_time = 0
-        for (batch, (betas, idx, img, cap)) in dataset_train.enumerate():
+        dataset_train_size = 0
+        for (batch, (betas, img, cap)) in dataset_train.enumerate():
+            dataset_train_size += betas.shape[0]
 
             losses = model.train_step((betas, cap))
             l1, l2 = losses.values()
@@ -274,10 +277,13 @@ def main():
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
                 pre_batch_time = time.time() - epoch_start
 
+        if epoch == 0:
+            print("dataset_train_size:", dataset_train_size)
+
         print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
 
         pre_train_time = time.time()
-        for (batch, (betas, idx, img, cap)) in dataset_test.enumerate():
+        for (batch, (betas, img, cap)) in dataset_test.enumerate():
             losses = model.test_step((betas, cap))
             l1, l2 = losses.values()
             total_epoch_loss_test += l2
@@ -310,13 +316,9 @@ def save_loss():
     with open(f'{data_path}loss_data.npz', 'wb') as f:
         np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=t_loss_test, ytest=t_b_loss_test)
 
-    with open(f'{data_path}test_img_keys.txt', 'w') as f:
-        test_keys = [i for sublist in test_images_idx for i in sublist]
-        for k in test_keys:
-            f.write(str(k) + "\n")
-
-    #with open(f'{data_path}memory_usage.txt', 'w') as f:
-    #    for k in memory_usage:
+    #with open(f'{data_path}test_img_keys.txt', 'w') as f:
+    #    test_keys = [i for sublist in test_images_idx for i in sublist]
+    #    for k in test_keys:
     #        f.write(str(k) + "\n")
 
 def save_model_sum():

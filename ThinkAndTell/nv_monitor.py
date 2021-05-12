@@ -27,7 +27,7 @@ def get_memory_usage():
     for i in mem_usage:
         mem.append(re.search(r'\d+', i)[0])
 
-    return mem
+    return list(map(int, mem))
 
 def get_volatile_util():
     """Returns volatile-gpu usage percentage
@@ -44,10 +44,15 @@ def get_volatile_util():
     for i in util_usage:
         util.append(re.search(r'\d+', i)[0])
 
-    return util
+    return list(map(int,util))
 
 
-def monitor():
+def monitor(threshold = 2000):
+    """
+    Wait till a gpu has <= threshold memory usage 
+    """
+
+    print(f"Monitoring GPU memory usage for availablility. Threshold set at {threshold} MiB.")
 
     start = time.time()
     c = 0
@@ -58,15 +63,15 @@ def monitor():
         mem = get_memory_usage()
 
         for i in range(0, len(mem)):
-            if int(mem[i]) <= 1600:
+            if int(mem[i]) <= threshold:
                 mem_blocked = False
                 gpu_to_use = i
                 ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-                print(f"\n## Training on gpu {i} at {ts} ##")
+                print(f"\n## Running on gpu {i} at {ts} ##")
                 break
 
         if mem_blocked:
-            print(f"waiting 5 more seconds | epoch {c} | {mem} | {(time.time() - start):.2f}", end='\r')
+            print(f"waiting 5 more seconds | epoch {c} | {mem} | {(time.time() - start):.2f} sec", end='\r')
             time.sleep(5)
         
         c += 1
@@ -77,6 +82,9 @@ def monitor():
 if __name__ == '__main__':
 
     mem = get_memory_usage()
+
+    print(min(mem))
+    print(mem.index(min(mem)))
 
     util = get_volatile_util()
 
