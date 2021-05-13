@@ -58,25 +58,29 @@ def monitor(threshold = 2000):
     c = 0
     mem_blocked = True
     gpu_to_use = 1
+
     while mem_blocked:
-
         mem = get_memory_usage()
+        min_ = 10000
+        arg_min_ = -1
+        for k,v in enumerate(mem):
+            if v < min_:
+                min_ = v
+                arg_min_ = k
 
-        for i in range(0, len(mem)):
-            if int(mem[i]) <= threshold:
-                mem_blocked = False
-                gpu_to_use = i
-                ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-                print(f"\n## Running on gpu {i} at {ts} ##")
-                break
-
-        if mem_blocked:
+        if min_ <= threshold:
+            mem_blocked = False
+            gpu_to_use = arg_min_
+            ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+            print(f"\n## Running on gpu {arg_min_} at {ts} ##")
+        else:
             print(f"waiting 5 more seconds | epoch {c} | {mem} | {(time.time() - start):.2f} sec", end='\r')
             time.sleep(5)
-        
         c += 1
 
     return gpu_to_use
+
+
 
 
 if __name__ == '__main__':
@@ -89,3 +93,5 @@ if __name__ == '__main__':
     util = get_volatile_util()
 
     print(list(zip(mem, util)))
+
+    monitor(10000)

@@ -13,7 +13,8 @@ class Encoder(tf.keras.Model):
     """
     def __init__(self, embedding_dim):
         super(Encoder, self).__init__()
-        self.fc = tf.keras.layers.Dense(embedding_dim)#, kernel_regularizer=tf.keras.regularizers.l2(0.001))
+        regularizer = tf.keras.regularizers.L2(0.01)
+        self.fc = tf.keras.layers.Dense(embedding_dim, kernel_regularizer=regularizer, activity_regularizer=regularizer, bias_regularizer=regularizer)
 
     def call(self, x):
         return tf.nn.relu(self.fc(x))
@@ -25,14 +26,24 @@ class Decoder(tf.keras.Model):
         super(Decoder, self).__init__()
 
         self.units = units
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, mask_zero = True)
+        regularizer = tf.keras.regularizers.L2(0.01)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, mask_zero = True)#, embeddings_regularizer=regularizer)
 
         # LSTM layer
-        self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=False, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')#, kernel_regularizer=tf.keras.regularizers.l2(0.001))
+        self.lstm = tf.keras.layers.LSTM(
+                units, 
+                return_sequences=True, 
+                stateful=False, 
+                return_state=True, 
+                unit_forget_bias=True, 
+                recurrent_initializer='glorot_uniform', 
+                kernel_regularizer=regularizer,
+                activity_regularizer=regularizer
+        )
 
         # Fully connected layers to convert from embedding dim to vocab
-        self.fc1 = tf.keras.layers.Dense(units)#, kernel_regularizer=tf.keras.regularizers.l2(0.001))
-        self.fc2 = tf.keras.layers.Dense(vocab_size)#, kernel_regularizer=tf.keras.regularizers.l2(0.001))
+        self.fc1 = tf.keras.layers.Dense(units, kernel_regularizer=regularizer, activity_regularizer=regularizer)
+        self.fc2 = tf.keras.layers.Dense(vocab_size, kernel_regularizer=regularizer, activity_regularizer=regularizer)
 
     def call(self, data, training = False):
         """Main call method
@@ -100,11 +111,14 @@ class CaptionGenerator(tf.keras.Model):
             ## feature embedding
             features = self.encoder(img_tensor)
 
+            #print("--------Features------")
+            #print(features.shape)
+
             predictions, _, _ = self.decoder((target, features), training=True)
 
             ## Loop through the sentences to get the loss
-            for i in range(1, target.shape[1]):
-                #print(target.shape, predictions.shape) # (64, 15) (64, 16, 5001)
+            for i in range(1, target.shape[1]): # target (64, 15) prediction (64, 16, 5001)
+                #print(">>> target:", target[:,i].shape, "prediction:", predictions[:,i].shape)
                 loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
         
         total_loss = (loss / int(target.shape[1]))
@@ -142,7 +156,10 @@ class CaptionGenerator(tf.keras.Model):
         pred - (bs, vs) a value for all words in the vocab  
         """
         mask = tf.math.logical_not(tf.math.equal(real, 0))
-        loss_ = self.compiled_loss(real, pred, regularization_losses=self.losses)
+        #loss_ = self.compiled_loss(real, pred, regularization_losses=self.losses)
+        loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+        
+        loss_ = loss_fn(real, pred)
 
         mask = tf.cast(mask, dtype=loss_.dtype)
         loss_ *= mask

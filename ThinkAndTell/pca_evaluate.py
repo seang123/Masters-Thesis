@@ -186,7 +186,7 @@ def evaluate(betas, target, k=5):
 def simple_eval(betas, target):
     """Simple evaluation using LSTM stateful=False
     """
-    print("---simple_eval----")
+    #print("---simple_eval----")
 
     features = encoder(betas)
     x, h, c = decoder((target, features)) # x=(1, 75, 5001)
@@ -223,7 +223,7 @@ def main(args):
         b = tf.expand_dims(cap, 0)
 
         img_id = img.numpy()[0]
-        print(f"\nimg key: {img_id}")
+        print(f"\n--img key: {img_id}--")
 
         with tf.device('/cpu'):
             predictions = simple_eval(a, b)

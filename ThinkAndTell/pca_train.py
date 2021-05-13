@@ -167,10 +167,10 @@ dataset_unq = tf.data.Dataset.from_tensor_slices((betas_unq, unq_img_keys))
 dataset_shr = tf.data.Dataset.from_tensor_slices((betas_shr, shr_img_keys))
 
 dataset_unq = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
-dataset_unq = dataset_unq.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+dataset_unq = dataset_unq.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c))).cache()
 
 dataset_shr = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
-dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c))).cache()
 
 dataset_train = dataset_unq.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 dataset_test = dataset_shr.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
@@ -182,7 +182,6 @@ print(" > dataset created")
 
 #### INSTANTIATE MODEL #####
 
-# TODO: add lrScheduler
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     0.01,
     decay_steps=2111 * param['EPOCHS'],
@@ -200,7 +199,7 @@ metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 encoder = Encoder(embedding_dim)
 decoder = Decoder(embedding_dim, units, vocab_size)
 model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
-model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
+model.compile(optimizer, loss_object, run_eagerly=True)
 
 #### CHECKPOINTS ####
 
