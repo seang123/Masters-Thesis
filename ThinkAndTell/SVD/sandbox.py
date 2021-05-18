@@ -52,7 +52,6 @@ Z = np.random.normal(0, 1, (3, 62))
 Z_m = Z - np.mean(Z, 0)
 
 Z1 = pca.transform(Z)
-Z1 = np.ascontiguousarray(Z1)
 Z2 = Z_m @ np.transpose(c_)
 
 print("z1", Z1.shape)

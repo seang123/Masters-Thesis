@@ -64,7 +64,7 @@ def monitor(threshold = 2000):
         min_ = 10000
         arg_min_ = -1
         for k,v in enumerate(mem):
-            if v < min_:
+            if v <= min_:
                 min_ = v
                 arg_min_ = k
 

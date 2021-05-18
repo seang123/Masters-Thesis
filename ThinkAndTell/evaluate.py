@@ -11,12 +11,16 @@ from model import Encoder, Decoder, CaptionGenerator
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # 0 everything, 3 nothing
 import tensorflow as tf
 import json
+import time
 from parameters import parameters 
 from load_dataset import load_dataset
 import argparse
 from nv_monitor import monitor
+from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.bleu_score import SmoothingFunction
+from tabulate import tabulate
 
-gpu_to_use = monitor(8000)
+gpu_to_use = monitor(10000)
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -26,8 +30,9 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 parser = argparse.ArgumentParser(description="Evaluating LSTM caption network")
 parser.add_argument("--save_img", default=True)
 parser.add_argument("--n", type=int, default=1)
+parser.add_argument("--show", default=True)
 
-
+out_path = "test_output/L2_no_pca"
 max_length = parameters['max_length']
 embedding_dim = parameters['embedding_dim']
 units = parameters['units']
@@ -41,7 +46,7 @@ nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, 
 print("> preparing captions")
 ## get img_indicies for subj02
 img_keys = []
-with open("img_indicies.txt") as f:
+with open("./keys/img_indicies.txt") as f:
     lines = f.readlines()
     for line in lines:
         img_keys.append(int(line.rstrip('\n')))
@@ -88,30 +93,31 @@ def apply_mask(x, mask):
 
 # returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
 #dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
-#dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
+dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
 
 ## Apply the mask to unique data
 #dataset_unq = dataset_unq.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
 #dataset_unq = dataset_unq.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
 # Apply mask to shared data
-#dataset_shr = dataset_shr.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-#dataset_shr = dataset_shr.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
+dataset_shr = dataset_shr.map(lambda a,b: (apply_mask(a, visual_mask), b))
+dataset_shr = dataset_shr.map(lambda a,b: (tf.ensure_shape(a, shape=(DIM,)),b))
 
 
 ## Connect the unique and shared datasets into one ##
 #dataset_cmp = dataset_unq.concatenate(dataset_shr)
 
-def extend_func(a, b, c):
+def extend_func(a, c):
     l = len(annt_dict[str(c)])
     caps = annt_dict[str(c)]
     seqs = tokenizer.texts_to_sequences(caps)
-    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length, padding='post') # (150102, 75)
+    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length, padding='post')
 
     # Properly reshape things to fit with the proper captions
     a1 = np.tile(a, l).reshape((l, a.shape[0]))
-    b1 = np.tile(b, l).reshape((l, 1))
     c1 = np.tile(c, l).reshape((l, 1))
-    return (a1, b1, c1, cap_vector)
+    return (a1, c1, cap_vector)
+
+
 
 #dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
 #dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
@@ -119,9 +125,7 @@ def extend_func(a, b, c):
 #dataset_sample = dataset_cmp.shuffle(1000).batch(1).take(n_samples)
 
 
-dataset_load = tf.data.experimental.load("./data/test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
-
-dataset_load = dataset_load.shuffle(1000)
+dataset_test = tf.data.experimental.load("./data/L2_no_pca/test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
 
 
 encoder = Encoder(embedding_dim)
@@ -130,7 +134,7 @@ decoder = Decoder(embedding_dim, units, vocab_size)
 model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
 optimizer = tf.keras.optimizers.Adam()
 
-checkpoint_path = f"./checkpoints/train"
+checkpoint_path = f"./checkpoints/train_L2_no_pca"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                    decoder=decoder,
                    optimizer = optimizer)
@@ -145,12 +149,13 @@ if ckpt_manager.latest_checkpoint:
 
     print(f"Checkpoint loaded! From epoch {start_epoch}")
 
-def print_pred(pred, target):
+def print_pred(pred, target, bscore):
     print("Generated:")
     #print(pred)
     print("  ", " ".join(pred))
     print("Target:")
     print("  ", "".join(" ".join(list(map(lambda i: tokenizer.index_word[i], target[0,:].numpy()))).split("<pad>")[0])) # one-liner to print target caption
+    print(f"bleu score: {bscore:.4f}")
 
 
 def forward(betas, dec_input):
@@ -191,10 +196,47 @@ def evaluate(betas, target, k=5):
 
         break 
 
-def simple_eval(betas, target):
+def bleu_score(candidate, img_key):
+    """ Calc. BLEU score for a generated caption
+
+    Parameters
+    ----------
+        candidate : [words] 
+        img_key   : int - used to get the list of references captions
+    """
+
+    captions = annt_dict[str(img_key)] # returns list of sentence strings
+    # convert to list of words and remove <start> token
+    references = []
+    for i in captions:
+        temp = i.split(" ")
+        references.append(temp[1:])
+
+    chencherry = SmoothingFunction()
+    try:
+        score1 = sentence_bleu(references, candidate, weights=(1, 0, 0, 0), smoothing_function=chencherry.method4)
+        score2 = sentence_bleu(references, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=chencherry.method4)
+        score3 = sentence_bleu(references, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=chencherry.method4)
+        score4 = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=chencherry.method4)
+
+        #score1i = sentence_bleu(references, candidate, weights=(1, 0, 0, 0))
+        score1i = score1
+        score2i = sentence_bleu(references, candidate, weights=(0, 1, 0, 0))
+        score3i = sentence_bleu(references, candidate, weights=(0, 0, 1, 0))
+        score4i = sentence_bleu(references, candidate, weights=(0, 0, 0, 1))
+
+    except ZeroDivisionError as e:
+        print("Bad candidate for bleu score calculation", img_key, candidate, captions[0])
+        return [[0, 0, 0, 0], [0,0,0,0]]
+
+
+    return [[score1, score2, score3, score4],[score1i, score2i, score3i, score4i]]
+
+
+def simple_eval(betas, target, img_key):
     """Simple evaluation using LSTM stateful=False
     """
-    print("---simple_eval----")
+    #print("---simple_eval----")
 
     features = encoder(betas)
     x, h, c = decoder((target, features)) # x=(1, 75, 5001)
@@ -208,8 +250,9 @@ def simple_eval(betas, target):
         if word == '<end>':
             break
 
-    print_pred(result, target)
-    return result
+    bscores = bleu_score(result, img_key)
+
+    return result, bscores
 
 def save_fig(img_id, pred):
     """ Save .png of image specified by key
@@ -220,31 +263,70 @@ def save_fig(img_id, pred):
     fig = plt.figure()
     plt.imshow(img)
     plt.title(f"img: {img_id}\n" + out)
-    plt.savefig(f"./test_output/test_img_{img_id}.png")
+    plt.savefig(f"{out_path}test_img_{img_id}.png")
     plt.close(fig)
 
 def main(args):
 
-    for (batch, (betas, idx, img, cap)) in dataset_load.enumerate():
+    bleu_scores = []
+
+    for (batch, (betas, img, cap)) in dataset_test.enumerate():
+        print(batch.numpy(), end='\r')
 
         a = tf.expand_dims(betas, 0)
         b = tf.expand_dims(cap, 0)
+        c = img.numpy()[0]
 
         img_id = img.numpy()[0]
-        print(f"\nimg key: {img_id}")
 
         with tf.device('/cpu'):
-            predictions = simple_eval(a, b)
+            predictions, bscore = simple_eval(a, b, c)
+            if args.show == True:
+                print(f"\n--img key: {img_id}--")
+                print_pred(predictions, b, bscore[0][-1])
+            bleu_scores.append(bscore)
 
         if args.save_img == True:
             save_fig(img_id, predictions)
 
-        if batch >= args.n - 1:
+        if batch >= args.n - 1 and args.n != -1:
             break
+
+    bleu_scores = np.array(bleu_scores) # (n, 2, 4)
+
+    ## Print BLEU scores tables
+    table_idv = []
+    table_cum = []
+    for i in range(0, 4):
+        name = f"{i+1}"
+        
+        # Cumulative scores
+        min_ = f"{(min(bleu_scores[:,0,i])):.4f}"
+        max_ = f"{(max(bleu_scores[:,0,i])):.4f}"
+        avg_ = f"{(sum(bleu_scores[:,0,i])/len(bleu_scores)):.4f}"
+
+        table_cum.append([name, min_, max_, avg_])
+
+        # individual scores
+        min_ = f"{(min(bleu_scores[:,1,i])):.4f}"
+        max_ = f"{(max(bleu_scores[:,1,i])):.4f}"
+        avg_ = f"{(sum(bleu_scores[:,1,i])/len(bleu_scores)):.4f}"
+
+        table_idv.append([name, min_, max_, avg_])
+
+    print("\nIndividual BLEU scores:\n")
+    print(tabulate(table_idv, headers=["BLEU", "min", "max", "avg"], floatfmt=".4f", tablefmt="presto"))
+
+    print("\nCumulative BLEU scores:\n")
+    print(tabulate(table_cum, headers=["BLEU","min", "max", "avg"], tablefmt="presto"))
+
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    start = time.time()
     main(args)
+    print(f"\nElapsed time: {(time.time() - start):.3f}")
 
 
 

@@ -27,7 +27,7 @@ class Decoder(tf.keras.Model):
 
         self.units = units
         regularizer = tf.keras.regularizers.L2(0.01)
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, mask_zero = True)#, embeddings_regularizer=regularizer)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, mask_zero = True, embeddings_regularizer=regularizer)
 
         # LSTM layer
         self.lstm = tf.keras.layers.LSTM(
@@ -102,7 +102,7 @@ class CaptionGenerator(tf.keras.Model):
             loss : dict (l1, l2)
         """
         # decompose dataset item
-        img_tensor, target = img_cap
+        img_tensor, _, target = img_cap
 
         loss = 0
 
@@ -111,14 +111,10 @@ class CaptionGenerator(tf.keras.Model):
             ## feature embedding
             features = self.encoder(img_tensor)
 
-            #print("--------Features------")
-            #print(features.shape)
-
             predictions, _, _ = self.decoder((target, features), training=True)
 
             ## Loop through the sentences to get the loss
             for i in range(1, target.shape[1]): # target (64, 15) prediction (64, 16, 5001)
-                #print(">>> target:", target[:,i].shape, "prediction:", predictions[:,i].shape)
                 loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
         
         total_loss = (loss / int(target.shape[1]))
@@ -128,14 +124,14 @@ class CaptionGenerator(tf.keras.Model):
         gradients = tape.gradient(loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
             
-        return {"loss": loss, "norm loss": total_loss}
+        return {"loss": total_loss}
 
     @tf.function
     def test_step(self, data):
         """ Testing step
         """
 
-        img_tensor, target = data
+        img_tensor, _, target = data
 
         loss = 0
 
@@ -147,7 +143,7 @@ class CaptionGenerator(tf.keras.Model):
 
         total_loss = (loss / int(target.shape[1]))
 
-        return {"loss": loss, "norm loss": total_loss}
+        return {"loss": total_loss}
 
     def loss_function(self, real, pred):
         """ Loss function

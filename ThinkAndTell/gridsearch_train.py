@@ -1,12 +1,5 @@
 # Main training file for fMRI data - LSTM network
 
-"""
-
-Trains the model on fMRI data, after PCA processing of the betas to 
-reduce the dimensionality.
-
-"""
-
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,6 +23,7 @@ import nibabel as nb
 #import psutils
 from nv_monitor import monitor
 from parameters import parameters as param
+from kerastuner.tuners import RandomSearch
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
@@ -45,7 +39,7 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 #### HYPER PARAMETERS ####
 BATCH_SIZE = param['BATCH_SIZE']
 BUFFER_SIZE = param['BUFFER_SIZE']
-data_path = param['data_path'] + "basic"
+data_path = f"./data/"
 test_set_size = 1000
 top_k = param['top_k']
 vocab_size = top_k + 1
@@ -191,51 +185,50 @@ print(" > dataset created")
 
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     0.01,
-    decay_steps=2111 * param['EPOCHS']*1/3,
+    decay_steps=2111 * param['EPOCHS'],
     decay_rate=0.1,
     staircase=False)
 
 ## Optimizer
-optimizer = tf.keras.optimizers.Adam(learning_rate = lr_schedule)
+optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001)
 #optimizer = tf.keras.optimizers.SGD(learning_rate = 0.01)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
 ## Model 
-encoder = Encoder(embedding_dim)
-decoder = Decoder(embedding_dim, units, vocab_size)
-model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
-model.compile(optimizer, loss_object, run_eagerly=True)
+#encoder = Encoder(embedding_dim)
+#decoder = Decoder(embedding_dim, units, vocab_size)
+#model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
+#model.compile(optimizer, loss_object, run_eagerly=True)
+
+def build_model(hp):
+    embed_dim = hp.Int('embed dim', min_value=64, max_value=512, step=32)
+    encoder = Encoder(embed_dim)
+    decoder = Decoder(embed_dim, hp.Int('lstm units', min_value=64, max_value=512, step=64), vocab_size)
+    model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
+    model.compile(optimizer=tf.keras.optimizers.Adam(hp.Choice('learning_rate', values=[1e-3])), loss = loss_object, run_eagerly=True)#, metrics=['accuracy']) 
+    return model
 
 #### CHECKPOINTS ####
 
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/train/"
-ckpt = tf.train.Checkpoint(encoder=encoder,
-                           decoder=decoder,
-                           optimizer=optimizer)
-ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+#checkpoint_path = f"./checkpoints/train/"
+#ckpt = tf.train.Checkpoint(encoder=encoder,
+#                           decoder=decoder,
+#                           optimizer=optimizer)
+#ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
-### LOAD PRE-TRAINED LSTM
-ckpt_load = tf.train.Checkpoint(
-                           decoder=decoder,
-                           )
-ckpt_load_pre_train = tf.train.CheckpointManager(ckpt_load, "./checkpoints/pre_train_lstm", max_to_keep=2)
-try:
-    ckpt_load.restore(ckpt_load_pre_train.latest_checkpoint)
-except Exception:
-    print(f"Failed to load pre-trained LSTM network!")
+#start_epoch = 0
+#if ckpt_manager.latest_checkpoint:
+#    start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
+    # restoring the latest checkpoint in checkpoint_path
+#    ckpt.restore(ckpt_manager.latest_checkpoint)
 
-start_epoch = 0
-if ckpt_load_pre_train.latest_checkpoint:
-    start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
-    ckpt.restore(ckpt_manager.latest_checkpoint)
-
-if start_epoch != 0:
-    print(f"Checkpoint loaded. Starting from epoch {start_epoch}")
-else:
-    print(f"No checkpoint loaded.")
+#if start_epoch != 0:
+#    print(f"Checkpoint loaded. Starting from epoch {start_epoch}")
+#else:
+#    print(f"No checkpoint loaded.")
 
 
 ### MORE HYPTER-PARAMETERS ###
@@ -281,12 +274,12 @@ def main():
         for (batch, (betas, img, cap)) in dataset_train.enumerate():
             dataset_train_size += betas.shape[0]
 
-            losses = model.train_step((betas, img, cap))
-            l2 ,= losses.values()
+            losses = model.train_step((betas, cap))
+            l1, l2 = losses.values()
             total_epoch_loss += l2
 
             training_loss.append(l2)
-            #training_batch_loss.append(l1)
+            training_batch_loss.append(l1)
 
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
@@ -299,12 +292,12 @@ def main():
 
         pre_train_time = time.time()
         for (batch, (betas, img, cap)) in dataset_test.enumerate():
-            losses = model.test_step((betas, img, cap))
-            l2 ,= losses.values()
+            losses = model.test_step((betas, cap))
+            l1, l2 = losses.values()
             total_epoch_loss_test += l2
 
             testing_loss.append(l2)
-            #testing_batch_loss.append(l1)
+            testing_batch_loss.append(l1)
 
 
 
@@ -322,6 +315,25 @@ def main():
 
     return 
 
+def main_tuner():
+    """Grid search over model parameters
+    """
+    print("running main_tuner() gridsearch")
+    tuner = RandomSearch(
+        build_model,
+        objective='val_loss',
+        max_trials=64,
+        executions_per_trial=1,
+        directory='tuner_data',
+        project_name='TnT_tuner')
+
+    print("---------------------")
+    print(tuner.search_space_summary())
+    print("---------------------")
+    tuner.search(dataset_train,
+                epochs=5,
+                validation_data=dataset_test)
+
 def save_loss():
     t_loss = np.array(training_loss)
     t_b_loss = np.array(training_batch_loss)
@@ -329,7 +341,7 @@ def save_loss():
     t_loss_test = np.array(testing_loss)
     t_b_loss_test = np.array(testing_batch_loss)
     with open(f'{data_path}loss_data.npz', 'wb') as f:
-        np.savez(f, xtrain=t_loss, xtest=t_loss_test)
+        np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=t_loss_test, ytest=t_b_loss_test)
 
     #with open(f'{data_path}test_img_keys.txt', 'w') as f:
     #    test_keys = [i for sublist in test_images_idx for i in sublist]
@@ -347,13 +359,14 @@ def save_model_sum():
         f.write(f"Total training epochs: {EPOCHS}")
         f.write(f"\nTraining started at: {train_start_time}")
         f.write(f"\nTraining completed at: {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
-        tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+        #tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
 
 if __name__ == '__main__':
     try:
-        main()
+        #main()
+        main_tuner()
         #tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, profile_batch = '100, 110')
         #model.fit(dataset_train, epochs = 1, steps_per_epoch=num_steps, callbacks=[tb_callback])
     except Exception as e:

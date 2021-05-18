@@ -15,6 +15,8 @@ from parameters import parameters
 from load_dataset import load_dataset
 import argparse
 from nv_monitor import monitor
+from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.bleu_score import SmoothingFunction
 
 gpu_to_use = monitor(10000)
 
@@ -26,6 +28,7 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 parser = argparse.ArgumentParser(description="Evaluating LSTM caption network")
 parser.add_argument("--save_img", default=True)
 parser.add_argument("--n", type=int, default=1)
+parser.add_argument("--show", default=True)
 
 
 max_length = parameters['max_length']
@@ -113,7 +116,7 @@ dataset_shr = tf.data.Dataset.from_tensor_slices((betas_shr, shr_img_keys))
 dataset_shr = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
 dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
-dataset_test = dataset_shr.shuffle(1000)
+dataset_test = dataset_shr.shuffle(5000)
     
 
 encoder = Encoder(embedding_dim)
@@ -137,12 +140,13 @@ if ckpt_manager.latest_checkpoint:
 
     print(f"Checkpoint loaded! From epoch {start_epoch}")
 
-def print_pred(pred, target):
+def print_pred(pred, target, bscore):
     print("Generated:")
     #print(pred)
     print("  ", " ".join(pred))
     print("Target:")
     print("  ", "".join(" ".join(list(map(lambda i: tokenizer.index_word[i], target[0,:].numpy()))).split("<pad>")[0])) # one-liner to print target caption
+    print(f"bleu score: {bscore:.4f}")
 
 
 def forward(betas, dec_input):
@@ -183,7 +187,46 @@ def evaluate(betas, target, k=5):
 
         break 
 
-def simple_eval(betas, target):
+def bleu_score(candidate, img_key):
+    """ Calc. BLEU score for a generated caption
+
+    Parameters
+    ----------
+        candidate : [words] 
+        img_key   : int - used to get the list of references captions
+    """
+
+    captions = annt_dict[str(img_key)] # returns list of sentence strings
+    # convert to list of words and remove <start> token
+    references = []
+    for i in captions:
+        temp = i.split(" ")
+        references.append(temp[1:])
+
+    #score = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25))
+
+    chencherry = SmoothingFunction()
+    try:
+        score1 = sentence_bleu(references, candidate, weights=(1, 0, 0, 0), smoothing_function=chencherry.method4)
+        score2 = sentence_bleu(references, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=chencherry.method4)
+        score3 = sentence_bleu(references, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=chencherry.method4)
+        score4 = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=chencherry.method4)
+
+        score1i = sentence_bleu(references, candidate, weights=(1, 0, 0, 0))
+        score2i = sentence_bleu(references, candidate, weights=(0, 1, 0, 0))
+        score3i = sentence_bleu(references, candidate, weights=(0, 0, 1, 0))
+        score4i = sentence_bleu(references, candidate, weights=(0, 0, 0, 1))
+
+
+    except ZeroDivisionError as e:
+        print("Bad candidate for bleu score calculation", img_key, candidate, captions[0])
+        return [[0, 0, 0, 0], [0,0,0,0]]
+
+
+    return [[score1, score2, score3, score4],[score1i, score2i, score3i, score4i]]
+
+
+def simple_eval(betas, target, img_key):
     """Simple evaluation using LSTM stateful=False
     """
     #print("---simple_eval----")
@@ -200,8 +243,9 @@ def simple_eval(betas, target):
         if word == '<end>':
             break
 
-    print_pred(result, target)
-    return result
+    bscores = bleu_score(result, img_key)
+
+    return result, bscores
 
 def save_fig(img_id, pred):
     """ Save .png of image specified by key
@@ -217,22 +261,49 @@ def save_fig(img_id, pred):
 
 def main(args):
 
+    bleu_scores = []
+
     for (batch, (betas, img, cap)) in dataset_test.enumerate():
+        print(batch.numpy(), end='\r')
 
         a = tf.expand_dims(betas, 0)
         b = tf.expand_dims(cap, 0)
+        c = img.numpy()[0]
 
         img_id = img.numpy()[0]
-        print(f"\n--img key: {img_id}--")
 
         with tf.device('/cpu'):
-            predictions = simple_eval(a, b)
+            predictions, bscore = simple_eval(a, b, c)
+            if args.show == True:
+                print(f"\n--img key: {img_id}--")
+                print_pred(predictions, b, bscore[0][-1])
+            bleu_scores.append(bscore)
 
         if args.save_img == True:
             save_fig(img_id, predictions)
 
-        if batch >= args.n - 1:
+        if batch >= args.n - 1 and args.n != -1:
             break
+
+    bleu_scores = np.array(bleu_scores) # (n, 2, 4)
+    print(bleu_scores.shape)
+
+    print(f"\n\nCumulative BLEU scores:\n") 
+    print(f"      \t    min  |   max  |  avg")
+    print(f"----------------------------------")
+    print(f"BLEU-1:   {(min(bleu_scores[:,0,0])):.4f} | {(max(bleu_scores[:,0,0])):.4f} | {(sum(bleu_scores[:,0,0])/len(bleu_scores)):.4f}")
+    print(f"BLEU-2:   {(min(bleu_scores[:,0,1])):.4f} | {(max(bleu_scores[:,0,1])):.4f} | {(sum(bleu_scores[:,0,1])/len(bleu_scores)):.4f}")
+    print(f"BLEU-3:   {(min(bleu_scores[:,0,2])):.4f} | {(max(bleu_scores[:,0,2])):.4f} | {(sum(bleu_scores[:,0,2])/len(bleu_scores)):.4f}")
+    print(f"BLEU-4:   {(min(bleu_scores[:,0,3])):.4f} | {(max(bleu_scores[:,0,3])):.4f} | {(sum(bleu_scores[:,0,3])/len(bleu_scores)):.4f}")
+
+    print(f"\n\nIndividual BLEU scores:\n") 
+    print(f"      \t    min  |   max  |  avg")
+    print(f"----------------------------------")
+    print(f"BLEU-1:   {(min(bleu_scores[:,1,0])):.4f} | {(max(bleu_scores[:,1,0])):.4f} | {(sum(bleu_scores[:,1,0])/len(bleu_scores)):.4f}")
+    print(f"BLEU-2:   {(min(bleu_scores[:,1,1])):.4f} | {(max(bleu_scores[:,1,1])):.4f} | {(sum(bleu_scores[:,1,1])/len(bleu_scores)):.4f}")
+    print(f"BLEU-3:   {(min(bleu_scores[:,1,2])):.4f} | {(max(bleu_scores[:,1,2])):.4f} | {(sum(bleu_scores[:,1,2])/len(bleu_scores)):.4f}")
+    print(f"BLEU-4:   {(min(bleu_scores[:,1,3])):.4f} | {(max(bleu_scores[:,1,3])):.4f} | {(sum(bleu_scores[:,1,3])/len(bleu_scores)):.4f}")
+
 
 if __name__ == '__main__':
     args = parser.parse_args()

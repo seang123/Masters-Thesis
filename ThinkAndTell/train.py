@@ -1,5 +1,14 @@
 # Main training file for fMRI data - LSTM network
 
+"""
+
+Trains the model on fMRI data, specifically the betas post GLM processing.
+
+- Currently, masks out only the visual cortex for training ~62k vertices
+
+"""
+
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -26,7 +35,7 @@ from parameters import parameters as param
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
-gpu_to_use = monitor(7000)
+gpu_to_use = monitor(1500)
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -38,7 +47,8 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 #### HYPER PARAMETERS ####
 BATCH_SIZE = param['BATCH_SIZE']
 BUFFER_SIZE = param['BUFFER_SIZE']
-data_path = f"./data/"
+data_folder = 'L2_no_pca/'
+data_path = param['data_path'] + data_folder
 test_set_size = 1000
 top_k = param['top_k']
 vocab_size = top_k + 1
@@ -99,7 +109,7 @@ def max_length():
 print("> preparing captions")
 ## get img_indicies for subj02
 img_keys = []
-with open("img_indicies.txt") as f:
+with open("./keys/img_indicies.txt") as f:
     lines = f.readlines()
     for line in lines:
         img_keys.append(int(line.rstrip('\n')))
@@ -148,31 +158,39 @@ dataset_shr = dataset_shr.map(lambda a,b: (tf.ensure_shape(a, shape=(DIM,)),b))
 ## Connect the unique and shared datasets into one ##
 #dataset_cmp = dataset_unq.concatenate(dataset_shr)
 
-def extend_func(a, b, c):
-    l = len(annt_dict[str(c)])
-    caps = annt_dict[str(c)]
+def extend_func(a, b):
+    """
+    Parameter
+    ---------
+        a - betas
+        b - img key
+    Return
+    ------
+        (betas * n_captions, img_key * n_captions, n_captions)
+    """
+    l = len(annt_dict[str(b)])
+    caps = annt_dict[str(b)]
     seqs = tokenizer.texts_to_sequences(caps)
     cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length(), padding='post') # (150102, 75)
 
     # Properly reshape things to fit with the proper captions
     a1 = np.tile(a, l).reshape((l, a.shape[0]))
     b1 = np.tile(b, l).reshape((l, 1))
-    c1 = np.tile(c, l).reshape((l, 1))
-    return (a1, b1, c1, cap_vector)
+    return (a1, b1, cap_vector)
 
 
 # TODO: split test/validation set here. Doing it afterwards is harder since its possible that brain-data has already been seen, jsut for a different
 # caption target
-dataset_test = dataset_shr.map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_test = dataset_test.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+dataset_test = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int64, tf.int32]))
+dataset_test = dataset_test.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
 ## Save validation dataset
 if not os.path.exists(f"{data_path}test_dataset"):
     tf.data.experimental.save(dataset_test, f"{data_path}test_dataset")
     print(" > Test set saved to disk")
 
-dataset_train = dataset_unq.map(lambda a,b,c: tf.numpy_function(extend_func, [a,b,c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-dataset_train = dataset_train.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+dataset_train = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int64, tf.int32]))
+dataset_train = dataset_train.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
 dataset_test = dataset_test.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 dataset_train = dataset_train.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
@@ -204,7 +222,7 @@ model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
 #### CHECKPOINTS ####
 
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/train/"
+checkpoint_path = f"./checkpoints/L2_no_pca/"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                            decoder=decoder,
                            optimizer=optimizer)
@@ -253,22 +271,20 @@ def main():
     print("\n## Starting Training ##\n")
 
     for epoch in range(start_epoch, EPOCHS):
-        #memory_usage.append(psutil.Process().memory_info().rss / (1024**2))
-
         epoch_start = time.time()
 
         total_epoch_loss = 0
         total_epoch_loss_test = 0
         
         pre_batch_time = 0
-        for (batch, (betas, idx, img, cap)) in dataset_train.enumerate():
+        for (batch, (betas, img, cap)) in dataset_train.enumerate():
 
-            losses = model.train_step((betas, cap))
-            l1, l2 = losses.values()
+            losses = model.train_step((betas, img, cap))
+            l2 ,= losses.values()
             total_epoch_loss += l2
 
             training_loss.append(l2)
-            training_batch_loss.append(l1)
+            #training_batch_loss.append(l1)
 
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
@@ -277,15 +293,13 @@ def main():
         print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
 
         pre_train_time = time.time()
-        for (batch, (betas, idx, img, cap)) in dataset_test.enumerate():
-            losses = model.test_step((betas, cap))
-            l1, l2 = losses.values()
+        for (batch, (betas, img, cap)) in dataset_test.enumerate():
+            losses = model.test_step((betas, img, cap))
+            l2 ,= losses.values()
             total_epoch_loss_test += l2
 
             testing_loss.append(l2)
-            testing_batch_loss.append(l1)
-
-
+            #testing_batch_loss.append(l1)
 
             # on the first epoch save the test image keys for later analysis
             if epoch == 0:
@@ -303,21 +317,17 @@ def main():
 
 def save_loss():
     t_loss = np.array(training_loss)
-    t_b_loss = np.array(training_batch_loss)
+    #t_b_loss = np.array(training_batch_loss)
 
     t_loss_test = np.array(testing_loss)
-    t_b_loss_test = np.array(testing_batch_loss)
+    #t_b_loss_test = np.array(testing_batch_loss)
     with open(f'{data_path}loss_data.npz', 'wb') as f:
-        np.savez(f, xtrain=t_loss, ytrain=t_b_loss, xtest=t_loss_test, ytest=t_b_loss_test)
+        np.savez(f, xtrain=t_loss, xtest=t_loss_test)
 
     with open(f'{data_path}test_img_keys.txt', 'w') as f:
         test_keys = [i for sublist in test_images_idx for i in sublist]
         for k in test_keys:
             f.write(str(k) + "\n")
-
-    #with open(f'{data_path}memory_usage.txt', 'w') as f:
-    #    for k in memory_usage:
-    #        f.write(str(k) + "\n")
 
 def save_model_sum():
     with open(f'{data_path}modelsummary.txt', 'w') as f:
