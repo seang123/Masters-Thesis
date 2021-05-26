@@ -31,14 +31,32 @@ parser = argparse.ArgumentParser(description="Evaluating LSTM caption network")
 parser.add_argument("--save_img", default=True)
 parser.add_argument("--n", type=int, default=1)
 parser.add_argument("--show", default=True)
+parser.add_argument("--name", type=str, default="trial_out")
+parser.add_argument("--bleu", default=True)
 
-out_path = "test_output/L2_no_pca"
+args = parser.parse_args()
+
+folder_name = args.name #"trial2_L2/"
+data_path = parameters['data_path'] + folder_name + "/"
+out_path = "test_output/" + folder_name + "/"
+
+if not os.path.exists(out_path):
+    os.mkdir(out_path)
+
+with open(f"{data_path}config.txt", "r") as f:
+    parameters = f.read()
+    parameters = json.loads(parameters)
+
+print(parameters)
+
+
 max_length = parameters['max_length']
 embedding_dim = parameters['embedding_dim']
 units = parameters['units']
 top_k = parameters['top_k']
 vocab_size = top_k + 1
 n_samples = 1 # nr. of images to test
+
         
 nsd_loader = NSDAccess("/home/seagie/NSD")
 nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
@@ -119,22 +137,22 @@ def extend_func(a, c):
 
 
 
-#dataset_cmp = dataset_cmp.map(lambda a, b, c: tf.numpy_function(extend_func, [a, b, c], [tf.float32, tf.int64, tf.int64, tf.int32]))
-#dataset_cmp = dataset_cmp.flat_map(lambda a,b,c,d: tf.data.Dataset.from_tensor_slices((a,b,c,d)))
+dataset_shr = dataset_shr.map(lambda a, b: tf.numpy_function(extend_func, [a, b], [tf.float32, tf.int64, tf.int32]))
+dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
-#dataset_sample = dataset_cmp.shuffle(1000).batch(1).take(n_samples)
+dataset_test = dataset_shr.shuffle(1000)#.take(n_samples)
+
+#if os.path.exists(f"{data_path}test_dataset"):
+#    dataset_test = tf.data.experimental.load(f"{data_path}test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
 
 
-dataset_test = tf.data.experimental.load("./data/L2_no_pca/test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
-
-
-encoder = Encoder(embedding_dim)
+encoder = Encoder(embedding_dim, parameters['L2'])
 #decoder = Decoder(embedding_dim, units, vocab_size, use_stateful=True)
-decoder = Decoder(embedding_dim, units, vocab_size)
+decoder = Decoder(embedding_dim, units, vocab_size, parameters['L2'])
 model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
 optimizer = tf.keras.optimizers.Adam()
 
-checkpoint_path = f"./checkpoints/train_L2_no_pca"
+checkpoint_path = f"{data_path}checkpoints"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                    decoder=decoder,
                    optimizer = optimizer)
@@ -239,9 +257,11 @@ def simple_eval(betas, target, img_key):
     #print("---simple_eval----")
 
     features = encoder(betas)
-    x, h, c = decoder((target, features)) # x=(1, 75, 5001)
+    x, _, _ = decoder((target, features), training=True)
 
     result = []
+    print("----max_length----")
+    print(max_length)
     for i in range(max_length):
         samp = tf.expand_dims(x[0,i,:], 0)
         pred_id = tf.random.categorical(samp, 1)[0][0].numpy()
@@ -271,7 +291,7 @@ def main(args):
     bleu_scores = []
 
     for (batch, (betas, img, cap)) in dataset_test.enumerate():
-        print(batch.numpy(), end='\r')
+        print("batch:", batch.numpy(), end='\r')
 
         a = tf.expand_dims(betas, 0)
         b = tf.expand_dims(cap, 0)
@@ -283,7 +303,7 @@ def main(args):
             predictions, bscore = simple_eval(a, b, c)
             if args.show == True:
                 print(f"\n--img key: {img_id}--")
-                print_pred(predictions, b, bscore[0][-1])
+                print_pred(predictions, b, bscore[1][0])
             bleu_scores.append(bscore)
 
         if args.save_img == True:
@@ -323,7 +343,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
     start = time.time()
     main(args)
     print(f"\nElapsed time: {(time.time() - start):.3f}")

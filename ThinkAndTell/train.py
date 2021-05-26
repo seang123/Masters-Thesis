@@ -17,9 +17,10 @@ import tensorflow as tf
 import time
 from nsd_access import NSDAccess
 import sys, os
+import json
 sys.path.append('/home/seagie/NSD/Code/Masters-Thesis/')
-sys.path.append('/home/seagie/sandbox/Tensorgram/')
-import tensorbot as tb
+#sys.path.append('/home/seagie/sandbox/Tensorgram/')
+#import tensorbot as tb
 import utils
 from model import Encoder, Decoder, CaptionGenerator
 import datetime
@@ -32,10 +33,11 @@ import nibabel as nb
 #import psutils
 from nv_monitor import monitor
 from parameters import parameters as param
+import argparse
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
-gpu_to_use = monitor(1500)
+gpu_to_use = monitor(8000)
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -44,10 +46,17 @@ for i in range(0, len(physical_devices)):
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
+current_time = datetime.datetime.now().strftime('%H:%M-%d/%m/%Y')
+parser = argparse.ArgumentParser(description="Training script")
+parser.add_argument("--name", type=str, default=current_time)
+parser.add_argument("--save_data", default=True)
+
+p_args = parser.parse_args()
+
 #### HYPER PARAMETERS ####
 BATCH_SIZE = param['BATCH_SIZE']
 BUFFER_SIZE = param['BUFFER_SIZE']
-data_folder = 'L2_no_pca/'
+data_folder = p_args.name + '/'
 data_path = param['data_path'] + data_folder
 test_set_size = 1000
 top_k = param['top_k']
@@ -55,6 +64,11 @@ vocab_size = top_k + 1
 
 embedding_dim = param['embedding_dim']
 units = param['units']
+L2_reg = param['L2']
+
+if not os.path.isdir(data_path):
+    os.makedirs(data_path)
+    print("> created data folder:", data_path)
 
 
 ### GLASSER REGIONS ###
@@ -117,10 +131,14 @@ with open("./keys/img_indicies.txt") as f:
 annt_dict = utils.load_json("../modified_annotations_dictionary.json")
 captions = [] # captions for each image
 nr_captions = [] # nr of captions for each image
-for i in img_keys:
-    caps = annt_dict[str(i)]
+for i in range(0, len(img_keys)):
+    key = img_keys[i]
+    caps = annt_dict[str(key)]
     captions.extend(caps)
     nr_captions.append(len(caps))
+
+nr_captions_train = sum(nr_captions[:27000])
+nr_captions_test = sum(nr_captions[27000:])
 
 
 ## Create Tokenizer ##
@@ -168,8 +186,8 @@ def extend_func(a, b):
     ------
         (betas * n_captions, img_key * n_captions, n_captions)
     """
-    l = len(annt_dict[str(b)])
     caps = annt_dict[str(b)]
+    l = len(caps)
     seqs = tokenizer.texts_to_sequences(caps)
     cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length(), padding='post') # (150102, 75)
 
@@ -207,26 +225,28 @@ lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     staircase=False)
 
 ## Optimizer
-optimizer = tf.keras.optimizers.Adam(learning_rate = 0.001)
-#optimizer = tf.keras.optimizers.SGD(learning_rate = 0.01)
+#optimizer = tf.keras.optimizers.Adam(learning_rate = param['LR'])
+optimizer = tf.keras.optimizers.SGD(learning_rate = 0.01)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
 ## Model 
-encoder = Encoder(embedding_dim)
-decoder = Decoder(embedding_dim, units, vocab_size)
+encoder = Encoder(embedding_dim, L2_reg)
+decoder = Decoder(embedding_dim, units, vocab_size, L2_reg)
 model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
 model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
+
+encoder.build(input_shape=(None, 62756, ))
 
 #### CHECKPOINTS ####
 
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/L2_no_pca/"
+checkpoint_path = f"{data_path}checkpoints/"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                            decoder=decoder,
                            optimizer=optimizer)
-ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=1)
 
 start_epoch = 0
 if ckpt_manager.latest_checkpoint:
@@ -241,10 +261,10 @@ else:
 
 
 ### MORE HYPTER-PARAMETERS ###
-train_set_size = 2111 #dataset_train.reduce(np.int32(0), lambda x,_: x + 1).numpy()
-test_set_size = 235 #dataset_test.reduce(np.int32(0), lambda x,_: x + 1).numpy()
-num_steps = train_set_size
-num_steps_test = test_set_size
+train_set_size = nr_captions_train #2111 #dataset_train.reduce(np.int32(0), lambda x,_: x + 1).numpy()
+test_set_size = nr_captions_test #235 #dataset_test.reduce(np.int32(0), lambda x,_: x + 1).numpy()
+num_steps = train_set_size // BATCH_SIZE
+num_steps_test = test_set_size // BATCH_SIZE 
 EPOCHS = param['EPOCHS']
 save_checkpoints = True
 save_data = True
@@ -255,13 +275,13 @@ train_start_time = datetime.datetime.now().strftime('%H:%M:%S-%d/%m/%Y')
 log_dir = 'logs/train'
 
 
-parameter_string = f"Parameters:\nBatch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} | train set: {num_steps * BATCH_SIZE}"
+parameter_string = f"Parameters:\nEpochs: {EPOCHS} | Batch Size: {BATCH_SIZE} | embedding dim: {embedding_dim} | units: {units} | vocab size: {vocab_size} | nr batches: {num_steps} | train set: {nr_captions_train}"
 print(parameter_string)
 
 training_loss = []
-training_batch_loss = []
+#training_batch_loss = []
 testing_loss =[]
-testing_batch_loss = []
+#testing_batch_loss = []
 
 test_images_idx = []
 memory_usage = [] # in MiB
@@ -276,15 +296,16 @@ def main():
         total_epoch_loss = 0
         total_epoch_loss_test = 0
         
+        num_steps = 0
         pre_batch_time = 0
         for (batch, (betas, img, cap)) in dataset_train.enumerate():
+            num_steps += 1
 
             losses = model.train_step((betas, img, cap))
             l2 ,= losses.values()
             total_epoch_loss += l2
 
             training_loss.append(l2)
-            #training_batch_loss.append(l1)
 
             if batch % 100 == 0:
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
@@ -292,14 +313,16 @@ def main():
 
         print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
 
+        num_steps_test = 0
         pre_train_time = time.time()
         for (batch, (betas, img, cap)) in dataset_test.enumerate():
+            num_steps_test += 1
+
             losses = model.test_step((betas, img, cap))
             l2 ,= losses.values()
             total_epoch_loss_test += l2
 
             testing_loss.append(l2)
-            #testing_batch_loss.append(l1)
 
             # on the first epoch save the test image keys for later analysis
             if epoch == 0:
@@ -334,13 +357,25 @@ def save_model_sum():
         with redirect_stdout(f):
             encoder.summary()
             decoder.summary()
+    print("Model summary saved to file")
+
+def save_summary(save_model_sum = True):
+    with open(f'{data_path}modelsummary.txt', 'w+') as f:
+        if save_model_sum == True:
+            with redirect_stdout(f):
+                encoder.summary()
+                decoder.summary()
         f.write("\n")
         f.write(parameter_string)
         f.write("\n")
         f.write(f"Total training epochs: {EPOCHS}")
         f.write(f"\nTraining started at: {train_start_time}")
         f.write(f"\nTraining completed at: {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
-        tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+        #tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+        f.write("\n")
+
+    with open(f'{data_path}config.txt', 'w') as f:
+        f.write(json.dumps(param)) # store model config dict
 
 
 
@@ -356,15 +391,17 @@ if __name__ == '__main__':
 
     if save_data:
         try:
-            save_model_sum()
+            save_summary(True)
             print("Training/Model summary saved")
         except Exception as e:
             print("Failed to store training/model summary")
+            raise e
 
         try:
             save_loss()
             print("Loss data saved")
         except Exception as e:
             print("Failed to save loss data")
+            raise e
 
     print("Done.")

@@ -30,10 +30,11 @@ import nibabel as nb
 #import psutils
 from nv_monitor import monitor
 from parameters import parameters as param
+import argparse
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
-gpu_to_use = monitor(10000)
+gpu_to_use = monitor(8000)
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -41,18 +42,29 @@ for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
+current_time = datetime.datetime.now().strftime('%H:%M-%d/%m/%Y')
+parser = argparse.ArgumentParser(description="Training script")
+parser.add_argument("--name", type=str, default=current_time)
+parser.add_argument("--save_data", default=True)
+
+p_args = parser.parse_args()
 
 #### HYPER PARAMETERS ####
 BATCH_SIZE = param['BATCH_SIZE']
 BUFFER_SIZE = param['BUFFER_SIZE']
-data_path = param['data_path'] + "basic"
+data_folder = p_args.name + '/'
+data_path = param['data_path'] + data_folder
 test_set_size = 1000
 top_k = param['top_k']
 vocab_size = top_k + 1
 
 embedding_dim = param['embedding_dim']
 units = param['units']
+L2_reg = param['L2']
 
+if not os.path.isdir(data_path):
+    os.makedirs(data_path)
+    print("> created data folder:", data_path)
 
 ### GLASSER REGIONS ###
 print("> loading data")
@@ -119,6 +131,8 @@ for i in img_keys:
     captions.extend(caps)
     nr_captions.append(len(caps))
 
+nr_captions_train = sum(nr_captions[:27000])
+nr_captions_test = sum(nr_captions[27000:])
 
 ## Create Tokenizer ##
 tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters='!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
@@ -196,15 +210,15 @@ lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     staircase=False)
 
 ## Optimizer
-optimizer = tf.keras.optimizers.Adam(learning_rate = lr_schedule)
+optimizer = tf.keras.optimizers.Adam(learning_rate = param['LR'])
 #optimizer = tf.keras.optimizers.SGD(learning_rate = 0.01)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
 ## Model 
-encoder = Encoder(embedding_dim)
-decoder = Decoder(embedding_dim, units, vocab_size)
+encoder = Encoder(embedding_dim, L2_reg)
+decoder = Decoder(embedding_dim, units, vocab_size, L2_reg)
 model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
 model.compile(optimizer, loss_object, run_eagerly=True)
 
@@ -218,17 +232,17 @@ ckpt = tf.train.Checkpoint(encoder=encoder,
 ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
 
 ### LOAD PRE-TRAINED LSTM
-ckpt_load = tf.train.Checkpoint(
-                           decoder=decoder,
-                           )
-ckpt_load_pre_train = tf.train.CheckpointManager(ckpt_load, "./checkpoints/pre_train_lstm", max_to_keep=2)
+#ckpt_load = tf.train.Checkpoint(
+#                           decoder=decoder,
+#                           )
+#ckpt_load_pre_train = tf.train.CheckpointManager(ckpt_load, "./checkpoints/pre_train_lstm", max_to_keep=2)
 try:
     ckpt_load.restore(ckpt_load_pre_train.latest_checkpoint)
 except Exception:
     print(f"Failed to load pre-trained LSTM network!")
 
 start_epoch = 0
-if ckpt_load_pre_train.latest_checkpoint:
+if ckpt_manager.latest_checkpoint:
     start_epoch = int(ckpt_manager.latest_checkpoint.split('-')[-1])
     ckpt.restore(ckpt_manager.latest_checkpoint)
 
@@ -239,10 +253,10 @@ else:
 
 
 ### MORE HYPTER-PARAMETERS ###
-train_set_size = 2111 #dataset_train.reduce(np.int32(0), lambda x,_: x + 1).numpy()
-test_set_size = 235 #dataset_test.reduce(np.int32(0), lambda x,_: x + 1).numpy()
-num_steps = train_set_size
-num_steps_test = test_set_size
+train_set_size = nr_captions_train #2111 #dataset_train.reduce(np.int32(0), lambda x,_: x + 1).numpy()
+test_set_size = nr_captions_test #235 #dataset_test.reduce(np.int32(0), lambda x,_: x + 1).numpy()
+num_steps = train_set_size // BATCH_SIZE
+num_steps_test = test_set_size // BATCH_SIZE
 EPOCHS = param['EPOCHS']
 save_checkpoints = True
 save_data = True
@@ -257,9 +271,9 @@ parameter_string = f"Parameters:\nBatch Size: {BATCH_SIZE} | embedding dim: {emb
 print(parameter_string)
 
 training_loss = []
-training_batch_loss = []
+#training_batch_loss = []
 testing_loss =[]
-testing_batch_loss = []
+#testing_batch_loss = []
 
 test_images_idx = []
 memory_usage = [] # in MiB
@@ -269,17 +283,15 @@ def main():
     print("\n## Starting Training ##\n")
 
     for epoch in range(start_epoch, EPOCHS):
-        #memory_usage.append(psutil.Process().memory_info().rss / (1024**2))
-
         epoch_start = time.time()
 
         total_epoch_loss = 0
         total_epoch_loss_test = 0
         
+        num_steps = 0
         pre_batch_time = 0
-        dataset_train_size = 0
         for (batch, (betas, img, cap)) in dataset_train.enumerate():
-            dataset_train_size += betas.shape[0]
+            num_steps += 1
 
             losses = model.train_step((betas, img, cap))
             l2 ,= losses.values()
@@ -292,23 +304,19 @@ def main():
                 print(f"Epoch {epoch} | Batch {batch:4} | Loss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
                 pre_batch_time = time.time() - epoch_start
 
-        if epoch == 0:
-            print("dataset_train_size:", dataset_train_size)
-
         print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
 
+        num_steps_test = 0
         pre_train_time = time.time()
         for (batch, (betas, img, cap)) in dataset_test.enumerate():
+            num_steps_test += 1
+
             losses = model.test_step((betas, img, cap))
             l2 ,= losses.values()
             total_epoch_loss_test += l2
 
             testing_loss.append(l2)
-            #testing_batch_loss.append(l1)
 
-
-
-            # on the first epoch save the test image keys for later analysis
             if epoch == 0:
                 test_images_idx.append(img.numpy())
 
@@ -322,33 +330,38 @@ def main():
 
     return 
 
+
 def save_loss():
     t_loss = np.array(training_loss)
-    t_b_loss = np.array(training_batch_loss)
+    #t_b_loss = np.array(training_batch_loss)
 
     t_loss_test = np.array(testing_loss)
-    t_b_loss_test = np.array(testing_batch_loss)
+    #t_b_loss_test = np.array(testing_batch_loss)
     with open(f'{data_path}loss_data.npz', 'wb') as f:
         np.savez(f, xtrain=t_loss, xtest=t_loss_test)
 
-    #with open(f'{data_path}test_img_keys.txt', 'w') as f:
-    #    test_keys = [i for sublist in test_images_idx for i in sublist]
-    #    for k in test_keys:
-    #        f.write(str(k) + "\n")
+    with open(f'{data_path}test_img_keys.txt', 'w') as f:
+        test_keys = [i for sublist in test_images_idx for i in sublist]
+        for k in test_keys:
+            f.write(str(k) + "\n")
 
-def save_model_sum():
-    with open(f'{data_path}modelsummary.txt', 'w') as f:
-        with redirect_stdout(f):
-            encoder.summary()
-            decoder.summary()
+def save_summary(save_model_sum = True):
+    with open(f'{data_path}modelsummary.txt', 'w+') as f:
+        if save_model_sum == True:
+            with redirect_stdout(f):
+                encoder.summary()
+                decoder.summary()
         f.write("\n")
         f.write(parameter_string)
         f.write("\n")
         f.write(f"Total training epochs: {EPOCHS}")
         f.write(f"\nTraining started at: {train_start_time}")
         f.write(f"\nTraining completed at: {datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')}")
-        tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+        #tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
+        f.write("\n")
 
+    with open(f'{data_path}config.txt', 'w') as f:
+        f.write(json.dumps(param)) # store model config dict
 
 
 if __name__ == '__main__':
@@ -363,7 +376,7 @@ if __name__ == '__main__':
 
     if save_data:
         try:
-            save_model_sum()
+            save_summary(True)
             print("Training/Model summary saved")
         except Exception as e:
             print("Failed to store training/model summary")

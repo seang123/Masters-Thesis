@@ -142,6 +142,7 @@ dmypy.json
 
 # ignore checkpoint
 checkpoints/
+training_data/
 
 # logs
 logs/

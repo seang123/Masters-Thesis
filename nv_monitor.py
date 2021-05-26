@@ -47,9 +47,19 @@ def get_volatile_util():
     return list(map(int,util))
 
 
-def monitor(threshold = 2000):
+def monitor(threshold = 2000, wait = 5, gpu_choice=None):
     """
     Wait till a gpu has <= threshold memory usage 
+
+    Parameter
+    ---------
+        threshold : int - wait till less than this much memory is in use
+        wait : int - time in seconds to wait between checks
+        gpu_choice : int | None - force wait for a specific gpu
+
+    Return
+    ------
+        gpu_to_use : int - number of the available gpu, with minimum memory usage
     """
 
     print(f"Monitoring GPU memory usage for availablility. Threshold set at {threshold} MiB.")
@@ -72,10 +82,10 @@ def monitor(threshold = 2000):
             mem_blocked = False
             gpu_to_use = arg_min_
             ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
-            print(f"\n## Running on gpu {arg_min_} at {ts} ##")
+            print(f"\n## Running on gpu {arg_min_} at {ts} ##\n")
         else:
-            print(f"waiting 5 more seconds | epoch {c} | {mem} | {(time.time() - start):.2f} sec", end='\r')
-            time.sleep(5)
+            print(f"waiting {wait} more seconds | epoch {c} | {mem} | {(time.time() - start):.2f} sec", end='\r')
+            time.sleep(wait)
         c += 1
 
     return gpu_to_use

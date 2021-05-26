@@ -45,9 +45,9 @@ import nv_monitor as nv
 from parameters import parameters as param
 
 
-gpu_to_use = nv.monitor(9000) 
+gpu_to_use = nv.monitor(1000) 
 
-data_path = param['data_path'] + "data_img_train/"
+data_path = param['data_path'] + "img_train/"
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -66,11 +66,8 @@ nr_training_samples = 73000
 for i in range(0, nr_training_samples):
     train_captions.extend(annt_dict[str(i)])
 
-def max_length(ls):
-# return the length of the longest caption - its 260
+def max_length():
     return param['max_length']
-    #return max(len(t) for t in ls)
-    #return 260
 
 print("Preprocessing annotations...")
 # limit our vocab to the top N words
@@ -89,7 +86,7 @@ train_seqs = tokenizer.texts_to_sequences(train_captions)
 
 # Pad each vector to the max_length of the captions
 # If you do not provide a max_length value, pad_sequences calculates it automatically
-max_length = max_length(train_captions)
+max_length = max_length()
 cap_vector = tf.keras.preprocessing.sequence.pad_sequences(train_seqs, maxlen=max_length, padding='post')
 
 print("Annotations processed")
@@ -227,7 +224,7 @@ print(f"tf.dataset created")
 
 
 ## Optimizer
-optimizer = tf.keras.optimizers.Adam(0.001)
+optimizer = tf.keras.optimizers.Adam(0.0001)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 
@@ -287,8 +284,6 @@ def main():
     placeholder = tf.constant([0])
 
     for epoch in range(start_epoch, EPOCHS):
-        #memory_usage.append(psutil.Process().memory_info().rss / (1024**2))
-
         epoch_start = time.time()
 
         total_epoch_loss = 0
@@ -326,8 +321,6 @@ def main():
             testing_loss.append(l2)
             #testing_batch_loss.append(l1)
 
-
-
             # on the first epoch save the test image keys for later analysis
             if epoch == 0:
                 test_images_idx.append(cap.numpy())
@@ -347,7 +340,6 @@ def main():
 
 
 
-print("saving training data...")
 
 def save_loss():
     t_loss = np.array(training_loss)
