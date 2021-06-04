@@ -41,7 +41,7 @@ data_path = parameters['data_path'] + folder_name + "/"
 out_path = "test_output/" + folder_name + "/"
 
 if not os.path.exists(out_path):
-    os.mkdir(out_path)
+    os.makedirs(out_path)
 
 with open(f"{data_path}config.txt", "r") as f:
     parameters = f.read()
