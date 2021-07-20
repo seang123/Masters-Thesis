@@ -39,7 +39,7 @@ from kerastuner import Objective
 print("imports complete")
 #export TF_CPP_MIN_LOG_LEVEL="3"
 
-gpu_to_use = monitor(8000)
+gpu_to_use = monitor(10000, gpu_choice=None)
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -66,7 +66,6 @@ vocab_size = top_k + 1
 
 embedding_dim = param['embedding_dim']
 units = param['units']
-L2_reg = param['L2']
 
 if not os.path.isdir(data_path):
     os.makedirs(data_path)
@@ -160,14 +159,16 @@ print("> Tokenizer created!")
 ##### Create Dataset ######
 
 print("> Creating dataset")
-dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
+#dataset_cap = tf.data.Dataset.from_tensor_slices(cap_vector)
 
-use_pca = True
+use_pca = False
+print(f"> using PCA data: {use_pca}")
+
 
 if use_pca == False:
     # returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
-    dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
-    dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
+    dataset_unq = load_dataset("subj02", "unique", nparallel=54)#tf.data.experimental.AUTOTUNE)
+    dataset_shr = load_dataset("subj02", "shared", nparallel=54)#tf.data.experimental.AUTOTUNE)
 
     ## Apply the mask to unique data
     dataset_unq = dataset_unq.map(lambda a,b: (apply_mask(a, visual_mask),b))
@@ -223,7 +224,7 @@ def extend_func(a, b):
 
 # TODO: split test/validation set here. Doing it afterwards is harder since its possible that brain-data has already been seen, jsut for a different
 # caption target
-dataset_test = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
+dataset_test = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32])) # pca uses int32 for img
 dataset_test = dataset_test.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
 ## Save validation dataset
@@ -234,8 +235,8 @@ if not os.path.exists(f"./data/test_dataset"):
 dataset_train = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
 dataset_train = dataset_train.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
-dataset_test = dataset_test.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-dataset_train = dataset_train.shuffle(1000, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+dataset_test = dataset_test.shuffle(BUFFER_SIZE, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+dataset_train = dataset_train.shuffle(BUFFER_SIZE, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
 print(" > dataset created")
 
@@ -244,28 +245,33 @@ print(" > dataset created")
 # TODO: add lrScheduler
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     0.001,
-    decay_steps=1055,
+    decay_steps=1056,
     decay_rate=0.1,
-    staircase=False)
+    staircase=False
+)
+
+lr_schedule = tf.keras.experimental.CosineDecay(
+    initial_learning_rate=1.0, decay_steps=1056 * param['EPOCHS'], alpha=0.0001, name=None
+)
 
 ## Optimizer
-optimizer = tf.keras.optimizers.Adam(learning_rate = param['LR'])
-#optimizer = tf.keras.optimizers.SGD(learning_rate = 0.01)
+#optimizer = tf.keras.optimizers.Adam(learning_rate = param['LR'])
+#optimizer = tf.keras.optimizers.RMSprop(learning_rate=0.001, rho=0.9, momentum=0.0, epsilon=1e-07, centered=False, name='RMSprop')
+#optimizer = tf.keras.optimizers.Nadam(learning_rate = 0.001)
+optimizer = tf.keras.optimizers.SGD(learning_rate = lr_schedule, momentum=0.9, nesterov=False)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
 metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
 
 ## Model 
-encoder = Encoder(embedding_dim, L2_reg, param['init_method'], param['dropout_fc'])
+encoder = Encoder(embedding_dim, param['L2'], param['init_method'], param['dropout_fc'])
 decoder = Decoder(embedding_dim, units, vocab_size, param['L2_lstm'], param['init_method'], param['dropout_lstm'])
-model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
-model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
 
 train_callbacks = [
     #tf.keras.callbacks.EarlyStopping(
     #    monitor="val_scce", patience=3, min_delta=0.001, restore_best_weights=True),
     tf.keras.callbacks.ReduceLROnPlateau(
-        monitor="val_scce", factor=0.1, patience=2, verbose=1, min_lr = 0.00001)
+        monitor="val_scce", factor=0.1, patience=2, verbose=1, min_lr = 0.001)
 ]
 
 #encoder.build(input_shape=(None, 62756, ))
@@ -285,6 +291,23 @@ def build_model(hp):
     decoder = Decoder(embedding_dim, units, vocab_size, L2_lstm, init_method, dropout_lstm)
     model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
     model.compile(optimizer=tf.keras.optimizers.Adam(lr), loss = loss_object, run_eagerly=True)
+    return model
+
+def build_model2(init_method):
+    """
+    Build the model with different initilization methods
+    """
+
+    optimizer = tf.keras.optimizers.SGD(learning_rate = lr_schedule, momentum=0.9)
+    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+        from_logits=True, reduction='none')
+    metric_object = tf.keras.metrics.SparseCategoricalCrossentropy()
+
+    ## Model 
+    encoder = Encoder(embedding_dim, param['L2'], init_method, param['dropout_fc'])
+    decoder = Decoder(embedding_dim, units, vocab_size, param['L2_lstm'], init_method, param['dropout_lstm'])
+    model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
+    model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
     return model
     
 
@@ -309,6 +332,9 @@ if 1 == 1:
     else:
         print(f"No checkpoint loaded.")
 
+model = CaptionGenerator(encoder, decoder, tokenizer, max_length)
+model.compile(optimizer, loss_object, metric_object, run_eagerly=True)
+
 
 ### MORE HYPTER-PARAMETERS ###
 train_set_size = nr_captions_train #2111 #dataset_train.reduce(np.int32(0), lambda x,_: x + 1).numpy()
@@ -316,8 +342,8 @@ test_set_size = nr_captions_test #235 #dataset_test.reduce(np.int32(0), lambda x
 num_steps = train_set_size // BATCH_SIZE
 num_steps_test = test_set_size // BATCH_SIZE 
 EPOCHS = param['EPOCHS']
-save_checkpoints = True
-save_data = True
+save_checkpoints = param['SAVE_CHECKPOINT']
+save_data = param['SAVE_DATA']
 train_start_time = datetime.datetime.now().strftime('%H:%M:%S-%d/%m/%Y')
 
 
@@ -336,9 +362,51 @@ testing_loss_total = []
 test_images_idx = []
 memory_usage = [] # in MiB
 
+def get_init_weights(init_method_name, init_method):
+    """
+    For a given initilization method, get the weights at the start and after 1 epoch
+
+    """
+
+    print(f"building model with initlization: {init_method_name}")
+    model = build_model2(init_method)
+
+    for (batch, (betas, img, cap)) in dataset_train.enumerate():
+
+        losses = model.train_step((betas, img, cap))
+        scce, l2, total_loss, ew, dw = losses.values()
+
+        if batch == 0:
+            fc = ew[0].numpy()
+            we = dw[0].numpy() # word embedding
+            lstm_kernel = dw[1].numpy()
+            lstm_r_kernel = dw[2].numpy()
+            fc2 = dw[4].numpy()
+            fc3 = dw[6].numpy()
+            with open(f'{data_path}weights_{init_method_name}_0.npz', 'wb') as f:
+                np.savez(f, fc = fc, we = we, lstm_kernel = lstm_kernel, lstm_r_kernel = lstm_r_kernel, fc2 = fc2, fc3 = fc3)
+
+        if batch % 100 == 0:
+            print(f"Batch {batch:4} | Scce {(scce):.4f} | L2 {(l2):.4f}")
+    
+        if batch == 500:
+            fc = ew[0].numpy()
+            we = dw[0].numpy()
+            lstm_kernel = dw[1].numpy()
+            lstm_r_kernel = dw[2].numpy()
+            fc2 = dw[4].numpy()
+            fc3 = dw[6].numpy()
+            with open(f'{data_path}weights_{init_method_name}_1.npz', 'wb') as f:
+                np.savez(f, fc = fc, we = we, lstm_kernel = lstm_kernel, lstm_r_kernel = lstm_r_kernel, fc2 = fc2, fc3 = fc3)
+            break
+
+    print(f"Done. Weights saved for method: {init_method_name}")
+
+
 def main():
 
     print("\n## Starting Training ##\n")
+    train_start_time = time.time()
 
     for epoch in range(start_epoch, EPOCHS):
         epoch_start = time.time()
@@ -351,15 +419,31 @@ def main():
         for (batch, (betas, img, cap)) in dataset_train.enumerate():
             num_steps += 1
 
+            #nsd_loader = NSDAccess("/home/seagie/NSD")
+            #nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
+
+            #img_idx = img[0] 
+            #img_true = nsd_loader.read_images(img_idx)
+            #fig = plt.figure()
+            #plt.imshow(img_true)
+            #plt.savefig(f"{data_path}test_img.png")
+            #plt.close(fig)
+            #temp = cap[0].numpy()
+            #for i in temp:
+            #    print(tokenizer.index_word[i])
+            #print("exit !!!!")
+            #sys.exit(0)
+
             losses = model.train_step((betas, img, cap))
-            scce, l2 = losses.values()
+            scce, l2, total_loss, _, _ = losses.values()
             total_epoch_loss += scce
 
             training_loss.append(scce)
-            training_loss_total.append(l2)
+            training_loss_total.append(total_loss)
+
 
             if batch % 100 == 0:
-                print(f"Epoch {epoch} | Batch {batch:4} | Scce {(scce):.4f} | TLoss {(l2):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
+                print(f"Epoch {epoch} | Batch {batch:4} | Scce {(scce):.4f} | L2 {(l2):.4f} | Loss {(total_loss):.4f} | {(time.time()-epoch_start-pre_batch_time):.2f} sec")
                 pre_batch_time = time.time() - epoch_start
 
         print(f"Train {epoch} | Loss {(total_epoch_loss/num_steps):.4f} | Total Time: {(time.time() - epoch_start):.2f} sec")
@@ -370,11 +454,11 @@ def main():
             num_steps_test += 1
 
             losses = model.test_step((betas, img, cap))
-            scce, l2 = losses.values()
+            scce, l2, total_loss = losses.values()
             total_epoch_loss_test += scce
 
             testing_loss.append(scce)
-            testing_loss_total.append(l2)
+            testing_loss_total.append(total_loss)
 
             # on the first epoch save the test image keys for later analysis
             if epoch == 0:
@@ -389,7 +473,9 @@ def main():
             except Exception as e:
                 print("Failed to store checkpoint")
 
-        print(f"--- Complete {epoch} ---")
+        print(f"--- Complete {epoch+1} ---")
+
+    print(f"Total elapsed time: {(time.time() - train_start_time):.2f}")
 
     return 
 
@@ -448,12 +534,30 @@ def main_tuner():
             epochs = 10,
             validation_data=dataset_test)
 
+def main_init_weights():
+    ru = tf.keras.initializers.RandomUniform(minval=-0.08, maxval=0.08, seed=None)
+    gn = tf.keras.initializers.GlorotNormal(seed=None)
+    gu = tf.keras.initializers.GlorotUniform(seed=None)
+    z  = tf.keras.initializers.Zeros()
+    lu = tf.keras.initializers.LecunUniform(seed=None)
+    ln = tf.keras.initializers.LecunNormal(seed=None)
+    init_methods = {"ru":ru, "gn":gn, "gu":gu, "z":z, "lu":lu, "ln":ln}
+    init_methods = {'ru':ru, 'gn':gn, 'gu':gu}
+    
+    for k, v in init_methods.items():
+        get_init_weights(k, v)
+
 
 if __name__ == '__main__':
     try:
-        #main()
+        main()
+        #main_init_weights()
         #main_tuner()
-        model.fit(dataset_train, validation_data = dataset_test, epochs = param['EPOCHS'], callbacks=train_callbacks)#, steps_per_epoch=num_steps)
+        #history_callback = model.fit(dataset_train, validation_data = dataset_test, epochs = param['EPOCHS'], callbacks=train_callbacks)#, steps_per_epoch=num_steps)
+        #training_loss = history_callback.history["scce"] 
+        #training_loss_total = history_callback.history['loss']
+        #testing_loss = history_callback.history['val_scce']
+        #testing_loss_total = history_callback.history['val_loss']
     except Exception as e:
         raise e
     except KeyboardInterrupt as e:
@@ -461,17 +565,16 @@ if __name__ == '__main__':
 
     if save_data:
         try:
-            save_summary(True)
-            print("Training/Model summary saved")
-        except Exception as e:
-            print("Failed to store training/model summary")
-            raise e
-
-        try:
             save_loss()
             print("Loss data saved")
         except Exception as e:
-            print("Failed to save loss data")
+            print("Failed! to save loss data")
+
+        try:
+            save_summary(True)
+            print("Training/Model summary saved")
+        except Exception as e:
+            print("Failed! to store training/model summary")
             raise e
 
     print("Done.")

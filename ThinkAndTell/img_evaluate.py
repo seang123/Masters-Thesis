@@ -20,7 +20,7 @@ from nltk.translate.bleu_score import sentence_bleu
 from nltk.translate.bleu_score import SmoothingFunction
 from tabulate import tabulate
 
-gpu_to_use = monitor(10000)
+gpu_to_use = monitor(9000)
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -39,6 +39,10 @@ args = parser.parse_args()
 folder_name = args.name #"trial2_L2/"
 data_path = parameters['data_path'] + folder_name + "/"
 out_path = "test_output/" + folder_name + "/"
+
+print(f"folder_name: {folder_name}")
+print(f"data_path: {data_path}")
+print(f"out_path: {out_path}")
 
 if not os.path.exists(out_path):
     os.makedirs(out_path)
@@ -112,48 +116,26 @@ def apply_mask(x, mask):
 # returns: [betas, dim, subj(1,2,..), sess(1-40), idx, id73k]
 #dataset_unq = load_dataset("subj02", "unique", nparallel=tf.data.experimental.AUTOTUNE)
 use_pca = True
-
-if use_pca == False:
-    dataset_shr = load_dataset("subj02", "shared", nparallel=tf.data.experimental.AUTOTUNE)
-
-## Apply the mask to unique data
-#dataset_unq = dataset_unq.map(lambda a,b,c: (apply_mask(a, visual_mask), b,c))
-#dataset_unq = dataset_unq.map(lambda a,b,c: (tf.ensure_shape(a, shape=(DIM,)),b,c))
-# Apply mask to shared data
-    dataset_shr = dataset_shr.map(lambda a,b: (apply_mask(a, visual_mask), b))
-    dataset_shr = dataset_shr.map(lambda a,b: (tf.ensure_shape(a, shape=(DIM,)),b))
-else:
-    with open("./SVD/data/pca_subj02_betas_shr_vc.npy", "rb") as f:
-        betas_shr = np.load(f).astype(np.float32)
-
-    shr_img_keys = []
-    with open("./keys/shr_img_keys.txt", "r") as f:
-        f_lines = f.readlines()
-        for line in f_lines:
-            shr_img_keys.append(int(line))
-
-    dataset_shr = tf.data.Dataset.from_tensor_slices((betas_shr, shr_img_keys))
+use_img = True
 
 ## Connect the unique and shared datasets into one ##
 #dataset_cmp = dataset_unq.concatenate(dataset_shr)
 
-def extend_func(a, c):
-    l = len(annt_dict[str(c)])
-    caps = annt_dict[str(c)]
-    seqs = tokenizer.texts_to_sequences(caps)
-    cap_vector = tf.keras.preprocessing.sequence.pad_sequences(seqs, maxlen=max_length, padding='post')
-
-    # Properly reshape things to fit with the proper captions
-    a1 = np.tile(a, l).reshape((l, a.shape[0]))
-    c1 = np.tile(c, l).reshape((l, 1))
-    return (a1, c1, cap_vector)
+with open(f"{data_path}images_val_keys.txt", 'r') as f:
+        img_name_val_keys = list(np.loadtxt(f'{data_path}images_val_keys.txt', dtype = np.int32, delimiter = '\n')) 
 
 
+hdf_img_features = np.load('../ShowAndTell/img_features_vgg16').astype(np.float32)
 
-dataset_shr = dataset_shr.map(lambda a, b: tf.numpy_function(extend_func, [a, b], [tf.float32, tf.int32, tf.int32]))
-dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+def map_func(img_idx):
+    img_tensor = hdf_img_features[int(img_idx)]
+    return img_tensor, img_idx
 
-dataset_test = dataset_shr.shuffle(1000)#.take(n_samples)
+dataset_test = tf.data.Dataset.from_tensor_slices((img_name_val_keys))
+dataset_test = dataset_test.map(lambda a: tf.numpy_function(map_func, [a], [tf.float32, tf.int32]))
+#dataset_shr = dataset_shr.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
+
+dataset_test = dataset_test.shuffle(1000).batch(1)
 
 #if os.path.exists(f"{data_path}test_dataset"):
 #    dataset_test = tf.data.experimental.load(f"{data_path}test_dataset", element_spec=(tf.TensorSpec(shape=(62756,), dtype=tf.float32, name=None), tf.TensorSpec(shape=(1,), dtype=tf.int64, name=None), tf.TensorSpec(shape=(max_length,), dtype=tf.int32, name=None)))
@@ -244,46 +226,69 @@ def bleu_score(candidate, img_key):
         references.append(temp[1:])
 
     chencherry = SmoothingFunction()
-    try:
-        score1 = sentence_bleu(references, candidate, weights=(1, 0, 0, 0), smoothing_function=chencherry.method4)
-        score2 = sentence_bleu(references, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=chencherry.method4)
-        score3 = sentence_bleu(references, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=chencherry.method4)
-        score4 = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=chencherry.method4)
+    #try:
+    #    score1 = sentence_bleu(references, candidate, weights=(1, 0, 0, 0), smoothing_function=chencherry.method1)
+    #    score2 = sentence_bleu(references, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=chencherry.method1)
+    #    score3 = sentence_bleu(references, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=chencherry.method1)
+    #    score4 = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=chencherry.method1)
 
         #score1i = sentence_bleu(references, candidate, weights=(1, 0, 0, 0))
-        score1i = score1
-        score2i = sentence_bleu(references, candidate, weights=(0, 1, 0, 0))
-        score3i = sentence_bleu(references, candidate, weights=(0, 0, 1, 0))
-        score4i = sentence_bleu(references, candidate, weights=(0, 0, 0, 1))
+    #    score1i = score1
+    #    score2i = sentence_bleu(references, candidate, weights=(0, 1, 0, 0))
+    #    score3i = sentence_bleu(references, candidate, weights=(0, 0, 1, 0))
+    #    score4i = sentence_bleu(references, candidate, weights=(0, 0, 0, 1))
 
-    except ZeroDivisionError as e:
-        print("Bad candidate for bleu score calculation", img_key, candidate, captions[0])
-        return [[0, 0, 0, 0], [0,0,0,0]]
+    #except ZeroDivisionError as e:
+    #    print("Bad candidate for bleu score calculation", img_key, candidate, captions[0])
+    #    return [[0, 0, 0, 0], [0,0,0,0]]
+
+    score1 = sentence_bleu(references, candidate, weights=(1, 0, 0, 0), smoothing_function=chencherry.method1)
+    score2 = sentence_bleu(references, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=chencherry.method1)
+    score3 = sentence_bleu(references, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=chencherry.method1)
+    score4 = sentence_bleu(references, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=chencherry.method1)
+
+    #return [[score1, score2, score3, score4],[score1i, score2i, score3i, score4i]]
+    return [score1, score2, score3, score4]
 
 
-    return [[score1, score2, score3, score4],[score1i, score2i, score3i, score4i]]
-
-
-def simple_eval(betas, target, img_key):
+def img_eval(features, img_key):
     """Simple evaluation using LSTM stateful=False
     """
     #print("---simple_eval----")
 
-    features = encoder(betas)
-    x, _, _ = decoder((target, features), training=False)
+    #features = features[0]
+
+    h = tf.zeros((1, parameters['units']))
+    c = tf.zeros((1, parameters['units'])) 
+
+    # Inital call with image
+    features = encoder(features)
+    x, h, c = decoder.pred(features, h, c, is_word=False)
 
     result = []
+    pred_id = tf.random.categorical(x[0, :, :], 1)[0][0].numpy()
+    word = tokenizer.index_word[pred_id]
+    result.append(word)
+
+    # Call model with each subsequent word until <end> or max-len reached
     for i in range(max_length):
-        samp = tf.expand_dims(x[0,i,:], 0)
-        pred_id = tf.random.categorical(samp, 1)[0][0].numpy()
-        word = tokenizer.index_word[pred_id]
-        result.append(word)
-        if word == '<end>':
+
+        if pred_id == 4: # <end> token
             break
 
-    bscores = bleu_score(result, img_key)
+        pred_id = np.array([pred_id])
+        pred_id = pred_id[None, :]
+        tf_pred_id = tf.convert_to_tensor(pred_id)
+        x, h, c = decoder.pred(tf_pred_id, h, c, is_word=True)
+    
+        pred_id = tf.random.categorical(x[0, :, :], 1)[0][0].numpy()
+        word = tokenizer.index_word[pred_id]
+        result.append(word)
 
-    return result, bscores
+
+    bleu_ = bleu_score(result, img_key)
+
+    return result, bleu_
 
 def save_fig(img_id, pred):
     """ Save .png of image specified by key
@@ -301,30 +306,35 @@ def main(args):
 
     bleu_scores = []
 
-    for (batch, (betas, img, cap)) in dataset_test.enumerate():
+    for (batch, (img, img_key)) in dataset_test.enumerate():
         print("batch:", batch.numpy(), end='\r')
 
-        a = tf.expand_dims(betas, 0)
-        b = tf.expand_dims(cap, 0)
-        c = img.numpy()[0]
-
-        img_id = img.numpy()[0]
-
-        with tf.device('/cpu'):
-            predictions, bscore = simple_eval(a, b, c)
-            if args.show == True:
-                print(f"\n--img key: {img_id}--")
-                print_pred(predictions, b, bscore[1][0])
-            bleu_scores.append(bscore)
+        #with tf.device('/cpu'):
+        predictions, bleu_score = img_eval(img, img_key[0].numpy())
+        bleu_scores.append(bleu_score)
+        
+        if args.show == True:
+            print(img_key[0].numpy(), "|", predictions)
 
         if args.save_img == True:
-            save_fig(img_id, predictions)
+            save_fig(img_key[0].numpy(), predictions)
 
         if batch >= args.n - 1 and args.n != -1:
             break
 
-    bleu_scores = np.array(bleu_scores) # (n, 2, 4)
+    bleu_scores = np.array(bleu_scores) # (n, 4)
 
+    b1_avg = np.mean(bleu_scores[:, 0]) 
+    b2_avg = np.mean(bleu_scores[:, 1])
+    b3_avg = np.mean(bleu_scores[:, 2])
+    b4_avg = np.mean(bleu_scores[:, 3])
+
+    avg_bleu = [[b1_avg, b2_avg, b3_avg, b4_avg]]
+
+    print("\nCummulative BLEU scores:\n")
+    print(tabulate(avg_bleu , headers = ["bleu 1", "bleu 2", "bleu 3", "bleu 4"], floatfmt=".4f", tablefmt="presto"))
+
+    sys.exit(0)
     ## Print BLEU scores tables
     table_idv = []
     table_cum = []

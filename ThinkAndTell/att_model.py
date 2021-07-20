@@ -8,6 +8,26 @@ import tensorflow as tf
 from tensorflow.keras.activations import relu
 #from dataclass import Dataclass
 
+class BahdanauAttention(tf.keras.Model):
+
+    def __init__(self, units):
+        super(BahdanauAttention, self).__init__()
+        self.fc1 = tf.keras.layers.Dense(units)
+        self.fc2 = tf.keras.layers.Dense(units)
+        self.f3  = tf.keras.layers.Dense(1)
+
+    def call(self, features, hidden):
+        """
+        Parameters:
+        ===========
+            features - betas (~62k,) 
+            hidden - previous lstm hidden state
+
+        """
+
+
+        return 
+
 class Encoder(tf.keras.Model):
     """Encoder Model.
     Takes 2nd last layer of CNN and maps it to a embedding vector
@@ -20,11 +40,10 @@ class Encoder(tf.keras.Model):
 
         self.fc = tf.keras.layers.Dense(
                 embedding_dim, 
-                activation='tanh',
+                activation='relu',#'tanh',
                 kernel_regularizer=regularizer, 
                 kernel_initializer=init_method,
-                bias_regularizer=regularizer,
-                name = 'fc_embedding'
+                #bias_regularizer=regularizer
                 )
 
     def call(self, x, training = False):
@@ -47,7 +66,7 @@ class Decoder(tf.keras.Model):
         self.units = units
         self.embedding_dim = embedding_dim
         regularizer = tf.keras.regularizers.L2(l2_reg)
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, embeddings_initializer='uniform')#mask_zero = True)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, embeddings_initializer=init_method, embeddings_regularizer=regularizer)#mask_zero = True)
         self.dropout = tf.keras.layers.Dropout(dropout)
 
         # LSTM layer
@@ -62,24 +81,20 @@ class Decoder(tf.keras.Model):
                 kernel_regularizer=regularizer,
                 recurrent_regularizer=regularizer,
         )
-        #self.gru = tf.keras.layers.GRU(
-        #        units,
-        #        return_sequences=True,
-        #        return_state=True,
-        #        stateful=False,
-        #        kernel_initializer='glorot_uniform',#init_method,
-        #        recurrent_initializer='orthogonal',#init_method,
-        #        kernel_regularizer=regularizer,
-        #        recurrent_regularizer=regularizer,
-        #)
+        self.gru = tf.keras.layers.GRU(
+                units,
+                return_sequences=True,
+                return_state=True,
+                stateful=False,
+                kernel_initializer='glorot_uniform',#init_method,
+                recurrent_initializer='orthogonal',#init_method,
+                kernel_regularizer=regularizer,
+                recurrent_regularizer=regularizer,
+        )
 
         # Fully connected layers to convert from embedding dim to vocab
-        #self.fc1 = tf.keras.layers.Dense(units, activation='relu', kernel_initializer=init_method, kernel_regularizer=regularizer) 
-        self.fc2 = tf.keras.layers.Dense(vocab_size, activation='relu', kernel_initializer=init_method, name = 'fc_vocab') #, kernel_regularizer=regularizer) 
-
-        self.time_dist = tf.keras.layers.TimeDistributed(self.fc2, name = 'time_dist_dense')
-
-
+        self.fc1 = tf.keras.layers.Dense(units, activation='relu', kernel_initializer=init_method) #, kernel_regularizer=regularizer) 
+        self.fc2 = tf.keras.layers.Dense(vocab_size, activation='relu', kernel_initializer=init_method) #, kernel_regularizer=regularizer) 
 
     def call(self, data, training = False):
         """Main call method
@@ -97,48 +112,20 @@ class Decoder(tf.keras.Model):
         ## x = (None, words+1, 512)
         x = tf.concat([feat, x], axis = 1)
 
+        carry = 0
         ## output = (None, words+1, 512)
-        output, hidden, carry = self.lstm(x)#, mask = mask)
+        #output, hidden, carry = self.lstm(x)#, mask = mask)
+        output, hidden = self.gru(x)
 
-        # x = (None, words+1, 512)
+        ## x = (None, words+1, 512)
         if training == True:
-            #x = self.dropout(self.fc1(self.dropout(output)))
-            x = self.time_dist(self.dropout(output))
+            x = self.dropout(self.fc1(self.dropout(output)))
         else:
-            #x = self.fc1(output)
-            x = self.time_dist(output)
+            x = self.fc1(output)
 
         ## x = (None, words+1, 5001)
-        #x = self.fc2(x)
+        x = self.fc2(x)
 
-        return x, hidden, carry
-
-    def pred(self, data, hidden_s, carry_s, is_word=True):
-        """ Prediction for single feature/word input
-
-        Paremeters:
-        ===========
-            data     - either feature(vector, image or betas) or a word represented as a tokenized int
-            hidden_s - previous hidden state
-            carry_s  - previous carry state
-            is_word  - boolean telling whether the input data is a feature or a word
-
-        Return
-        ======
-            x      - the output of the network, a distribution across the vocab
-            hidden - hidden state
-            carry  - carry state
-        """
-        if is_word == True:
-            x = self.embedding(data)
-        else:
-            x = tf.expand_dims(data, 1)
-
-        output, hidden, carry = self.lstm(x, initial_state=[hidden_s, carry_s])
-
-        #x = self.fc1(output)
-        #x = self.fc2(x)
-        x = self.time_dist(output)
         return x, hidden, carry
 
     def layer_summary(self):
@@ -184,7 +171,7 @@ class CaptionGenerator(tf.keras.Model):
 
             # Loop through the sentences to get the loss
             for i in range(1, target.shape[1]): # (None, 15)
-                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
+                loss += self.loss_function(target[:,i], predictions[:,i-1]) # maybe predictions[:,i-1]
 
             # normalised sparse categorical cross entropy loss
             scce = (loss / int(target.shape[1]))
@@ -211,7 +198,7 @@ class CaptionGenerator(tf.keras.Model):
             features = self.encoder(img_tensor, training = True)
             predictions, _, _ = self.decoder((target, features), training=True) # (None, 16, 5001)
             for i in range(1, target.shape[1]): # (None, 15)
-                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
+                loss += self.loss_function(target[:,i], predictions[:,i-1]) # maybe predictions[:,i-1]
             scce = (loss / int(target.shape[1]))
             if len(self.encoder.losses) != 0:
                 model_loss += tf.add_n(self.encoder.losses) # fc reg loss
@@ -268,8 +255,8 @@ class CaptionGenerator(tf.keras.Model):
             predictions, _, _ = self.decoder((target, features), training=True) # (None, 16, 5001)
 
             # Loop through the sentences to get the loss
-            for i in range(0, target.shape[1]): # (None, 15)
-                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
+            for i in range(1, target.shape[1]): # (None, 15)
+                loss += self.loss_function(target[:,i], predictions[:,i-1]) # maybe predictions[:,i-1]
 
             # normalised sparse categorical cross entropy loss
             scce = (loss / int(target.shape[1]))
@@ -302,8 +289,8 @@ class CaptionGenerator(tf.keras.Model):
         features = self.encoder(img_tensor)
         predictions, _, _ = self.decoder((target, features))
 
-        for i in range(0, target.shape[1]):
-            loss += self.loss_function(target[:,i], predictions[:,i])
+        for i in range(1, target.shape[1]):
+            loss += self.loss_function(target[:,i], predictions[:,i-1])
 
         scce = (loss / int(target.shape[1]))
 
@@ -333,6 +320,4 @@ class CaptionGenerator(tf.keras.Model):
 
         return tf.reduce_mean(loss_)
 
-    def prediction(self, features):
-        features = self.encoder(features)
-        
+

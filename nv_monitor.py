@@ -48,22 +48,32 @@ def get_volatile_util():
 
 
 def monitor(threshold = 2000, wait = 5, gpu_choice=None):
+    """Monitor a target gpu, or all gpus, for memory availability.
+
     """
-    Wait till a gpu has <= threshold memory usage 
+    print(f"Monitoring GPU (target={gpu_choice}) memory usage for availablility. Threshold set at {threshold} MiB.")
+
+    if gpu_choice == None:
+        gpu_to_use = _monitor(threshold, wait)
+    else:
+        gpu_to_use = _monitor_target(threshold, wait, gpu_choice)
+
+    return gpu_to_use
+
+def _monitor_target(threshold = 2000, wait = 5, gpu_choice=1):
+    """
+    Wait till a specified gpu has <= threshold memory usage 
 
     Parameter
     ---------
         threshold : int - wait till less than this much memory is in use
         wait : int - time in seconds to wait between checks
-        gpu_choice : int | None - force wait for a specific gpu
+        gpu_choice : target gpu to use
 
     Return
     ------
         gpu_to_use : int - number of the available gpu, with minimum memory usage
     """
-
-    print(f"Monitoring GPU memory usage for availablility. Threshold set at {threshold} MiB.")
-
     start = time.time()
     c = 0
     mem_blocked = True
@@ -71,7 +81,45 @@ def monitor(threshold = 2000, wait = 5, gpu_choice=None):
 
     while mem_blocked:
         mem = get_memory_usage()
-        min_ = 10000
+        min_ = 100000
+        arg_min_ = -1
+        for k,v in enumerate(mem):
+            if v <= min_:
+                min_ = v
+                arg_min_ = k
+
+        if min_ <= threshold and arg_min_ == gpu_choice:
+            mem_blocked = False
+            ts = datetime.datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+            print(f"\n## Running on gpu {arg_min_} at {ts} ##\n")
+        else:
+            print(f"waiting {wait} more seconds | epoch {c} | {mem} | {(time.time() - start):.2f} sec", end='\r')
+            time.sleep(wait)
+        c += 1
+
+    return gpu_to_use
+
+def _monitor(threshold = 2000, wait = 5):
+    """
+    Wait till a gpu has <= threshold memory usage 
+
+    Parameter
+    ---------
+        threshold : int - wait till less than this much memory is in use
+        wait : int - time in seconds to wait between checks
+
+    Return
+    ------
+        gpu_to_use : int - number of the available gpu, with minimum memory usage
+    """
+    start = time.time()
+    c = 0
+    mem_blocked = True
+    gpu_to_use = 1
+
+    while mem_blocked:
+        mem = get_memory_usage()
+        min_ = 100000
         arg_min_ = -1
         for k,v in enumerate(mem):
             if v <= min_:
@@ -89,8 +137,6 @@ def monitor(threshold = 2000, wait = 5, gpu_choice=None):
         c += 1
 
     return gpu_to_use
-
-
 
 
 if __name__ == '__main__':
