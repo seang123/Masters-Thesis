@@ -134,7 +134,7 @@ captions = [] # captions for each image
 nr_captions = [] # nr of captions for each image
 for i in range(0, len(img_keys)):
     key = img_keys[i]
-    caps = annt_dict[str(key)]
+    
     captions.extend(caps)
     nr_captions.append(len(caps))
 
