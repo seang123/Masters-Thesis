@@ -269,7 +269,7 @@ current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 ## Checkpoints handler
-checkpoint_path = f"./checkpoints/train_attention_large"
+checkpoint_path = f"./checkpoints/pre_train_lstm"
 ckpt = tf.train.Checkpoint(encoder=encoder,
                            decoder=decoder,
                            optimizer = optimizer)

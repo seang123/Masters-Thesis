@@ -7,13 +7,15 @@ import utils
 import tqdm
 from nsd_access import NSDAccess
 import pandas as pd
+from nv_monitor import monitor 
 
-# Allow memory growth on GPU devices | Otherwise InceptionV3 won't run due to insufficient memory 
+gpu_to_use = monitor(5000)
+
+# Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
-
-#tf.config.set_visible_devices(physical_devices[2], 'GPU')
+tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 nsd_loader = NSDAccess("/home/seagie/NSD")
 

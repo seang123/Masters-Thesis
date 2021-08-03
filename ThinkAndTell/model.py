@@ -5,45 +5,81 @@ sys.path.append('/home/seagie/NSD/Code/Masters-Thesis')
 import utils
 import time
 import tensorflow as tf
+from tensorflow.keras.activations import relu
 #from dataclass import Dataclass
 
 class Encoder(tf.keras.Model):
     """Encoder Model.
     Takes 2nd last layer of CNN and maps it to a embedding vector
     """
-    def __init__(self, embedding_dim):
+    def __init__(self, embedding_dim, l2_reg, init_method, dropout):
         super(Encoder, self).__init__()
-        self.fc = tf.keras.layers.Dense(embedding_dim)
-        self.fc2 = tf.keras.layers.Dense(1024)
+        self.l2 = l2_reg
+        regularizer = tf.keras.regularizers.L2(l2_reg)
+        self.dropout = tf.keras.layers.Dropout(dropout)
 
-    def call(self, x):
-        return tf.nn.relu(self.fc(x))
+        self.fc = tf.keras.layers.Dense(
+                embedding_dim, 
+                activation='tanh',
+                kernel_regularizer=regularizer, 
+                kernel_initializer=init_method,
+                bias_regularizer=regularizer,
+                name = 'fc_embedding'
+                )
 
-    def call_new(self, x):
-        x = tf.nn.dropout(x, rate = 0.1)
-        x = tf.nn.relu(self.fc2(x))
-        x = tf.nn.dropout(x, rate = 0.6)
-        x = tf.nn.relu(self.fc(x))
-        x = tf.nn.dropout(x, rate = 0.2)
-        return x
+    def call(self, x, training = False):
+        if training == True:
+            return self.dropout(self.fc(x))
+        return self.fc(x)
+
+    #def summary(self):
+    #    #x = tf.keras.Input(shape=(62756,))
+    #    x = tf.keras.Input(shape=(5000,))
+    #    model = tf.keras.Model(inputs=[x], outputs=self.call(x))
+    #    return model.summary()
 
 
 class Decoder(tf.keras.Model):
 
-    def __init__(self, embedding_dim, units, vocab_size, use_stateful=False):
+    def __init__(self, embedding_dim, units, vocab_size, l2_reg, init_method, dropout, use_stateful=False):
         super(Decoder, self).__init__()
-        #inp = tf.keras.layers.Input(shape=(1,512), batch_size = 128)
+
         self.units = units
-        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, mask_zero = True)
+        self.embedding_dim = embedding_dim
+        regularizer = tf.keras.regularizers.L2(l2_reg)
+        self.embedding = tf.keras.layers.Embedding(vocab_size, embedding_dim, embeddings_initializer='uniform')#mask_zero = True)
+        self.dropout = tf.keras.layers.Dropout(dropout)
+
         # LSTM layer
-        if use_stateful == False:
-            self.lstm = tf.keras.layers.LSTM(units, return_sequences=True, stateful=False, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')
-        else:
-            self.lstm = tf.keras.layers.LSTM(units, return_sequences=False, stateful=True, return_state=True, unit_forget_bias=True, recurrent_initializer='glorot_uniform')
+        self.lstm = tf.keras.layers.LSTM(
+                units, 
+                return_sequences=True, 
+                stateful=False, 
+                return_state=True, 
+                unit_forget_bias=True, 
+                kernel_initializer=init_method,
+                recurrent_initializer=init_method, 
+                kernel_regularizer=regularizer,
+                recurrent_regularizer=regularizer,
+        )
+        #self.gru = tf.keras.layers.GRU(
+        #        units,
+        #        return_sequences=True,
+        #        return_state=True,
+        #        stateful=False,
+        #        kernel_initializer='glorot_uniform',#init_method,
+        #        recurrent_initializer='orthogonal',#init_method,
+        #        kernel_regularizer=regularizer,
+        #        recurrent_regularizer=regularizer,
+        #)
 
         # Fully connected layers to convert from embedding dim to vocab
-        self.fc1 = tf.keras.layers.Dense(units)
-        self.fc2 = tf.keras.layers.Dense(vocab_size)
+        #self.fc1 = tf.keras.layers.Dense(units, activation='relu', kernel_initializer=init_method, kernel_regularizer=regularizer) 
+        self.fc2 = tf.keras.layers.Dense(vocab_size, activation='relu', kernel_initializer=init_method, name = 'fc_vocab') #, kernel_regularizer=regularizer) 
+
+        self.time_dist = tf.keras.layers.TimeDistributed(self.fc2, name = 'time_dist_dense')
+
+
 
     def call(self, data, training = False):
         """Main call method
@@ -51,36 +87,70 @@ class Decoder(tf.keras.Model):
         """
         words, features = data
 
-        ## feat = (128, 1, 512)
+        ## feat = (None, 1, 512)
         feat = tf.expand_dims(features, 1)
 
-        ## x = (128, 260, 512)
+        ## x = (None, words+1, 512)
         x = self.embedding(words)
-        mask = self.embedding.compute_mask(words)
-        ## x = (128, 261, 512)
-        if training:    
-            x = tf.concat([feat, x], axis = 1)
+        #mask = self.embedding.compute_mask(words) # (1, 15)
 
-        ## output = (128, 261, 512)
-        output, hidden, carry = self.lstm(x, mask = mask)
+        ## x = (None, words+1, 512)
+        x = tf.concat([feat, x], axis = 1)
 
-        ## x = (128, 261, 512)
-        x = self.fc1(output)
+        ## output = (None, words+1, 512)
+        output, hidden, carry = self.lstm(x)#, mask = mask)
 
-        ## x = (128, 261, 5001)
-        x = self.fc2(x)
+        # x = (None, words+1, 512)
+        if training == True:
+            #x = self.dropout(self.fc1(self.dropout(output)))
+            x = self.time_dist(self.dropout(output))
+        else:
+            #x = self.fc1(output)
+            x = self.time_dist(output)
+
+        ## x = (None, words+1, 5001)
+        #x = self.fc2(x)
 
         return x, hidden, carry
 
-    def old_call(self, data, training=False):
-        x = data
-        output, _, _ = self.lstm(x)
-        x = self.fc1(output)
-        x = self.fc2(x)
-        return x
+    def pred(self, data, hidden_s, carry_s, is_word=True):
+        """ Prediction for single feature/word input
 
-    def reset_state(self, batch_size):
-        return tf.zeros((batch_size, self.units))
+        Paremeters:
+        ===========
+            data     - either feature(vector, image or betas) or a word represented as a tokenized int
+            hidden_s - previous hidden state
+            carry_s  - previous carry state
+            is_word  - boolean telling whether the input data is a feature or a word
+
+        Return
+        ======
+            x      - the output of the network, a distribution across the vocab
+            hidden - hidden state
+            carry  - carry state
+        """
+        if is_word == True:
+            x = self.embedding(data)
+        else:
+            x = tf.expand_dims(data, 1)
+
+        output, hidden, carry = self.lstm(x, initial_state=[hidden_s, carry_s])
+
+        #x = self.fc1(output)
+        #x = self.fc2(x)
+        x = self.time_dist(output)
+        return x, hidden, carry
+
+    def layer_summary(self):
+        for l in self.layers:
+            print(l.summary())
+
+
+    #def summary(self):
+    #    x = tf.keras.Input(shape=(15)) # word embeddings
+    #    y = tf.keras.Input(shape=(self.embedding_dim)) # image 
+    #    model = tf.keras.Model(inputs=[x, y], outputs=self.call((x, y)))
+    #    return model.summary()
 
 class CaptionGenerator(tf.keras.Model):
 
@@ -93,42 +163,80 @@ class CaptionGenerator(tf.keras.Model):
         self.tokenizer = tokenizer
         self.max_length = max_length
 
-    #@tf.function
-    def old_train_step(self, img_cap):
+    @tf.function
+    def train_step_SAM(self, img_cap):
+        """
+        Train step using Sharpness-aware minimisation SAM optimizer
+        """
+        rho = 0.05
 
-        img_tensor, target = img_cap
+        img_tensor, _, target = img_cap
 
-        loss = 0
-
-        hidden = self.decoder.reset_state(batch_size = target.shape[0])
-        dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']]* target.shape[0], 1)
+        loss = 0 # scce loss
+        model_loss = 0 # L2 loss
 
         with tf.GradientTape() as tape:
 
-            features = self.encoder(img_tensor)
-            features = tf.expand_dims(features, 1)
-            prediction = self.decoder(features)
-            loss += self.loss_function(target[:,0], prediction)
+            ## feature embedding
+            features = self.encoder(img_tensor, training = True)
 
-            for i in range(1, target.shape[1]):
-                x = self.decoder.embedding(dec_input)
-                prediction = self.decoder(x)
-                loss += self.loss_function(target[:,i], prediction)
+            predictions, _, _ = self.decoder((target, features), training=True) # (None, 16, 5001)
 
-                dec_input = tf.expand_dims(target[:,i], 1)
+            # Loop through the sentences to get the loss
+            for i in range(1, target.shape[1]): # (None, 15)
+                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
+
+            # normalised sparse categorical cross entropy loss
+            scce = (loss / int(target.shape[1]))
+
+            if len(self.encoder.losses) != 0:
+                model_loss += tf.add_n(self.encoder.losses) # fc reg loss
+            if len(self.decoder.losses) != 0:
+                model_loss += tf.add_n(self.decoder.losses) # lstm reg loss
             
-        total_loss = (loss / int(target.shape[1]))
+            total_loss = tf.add(scce, model_loss)
+            #total_loss = scce + model_loss
+            
+        trainable_variables = self.encoder.trainable_variables + self.decoder.trainable_variables
 
-        trainable_variables = self.decoder.trainable_variables + self.encoder.trainable_variables 
+        gradients = tape.gradient(total_loss, trainable_variables)
+        grad_norm = self._grad_norm(gradients)
+        scale = rho / (grad_norm + 1e-12)
 
-        gradients = tape.gradient(loss, trainable_variables)
-        self.optimizer.apply_gradients(zip(gradients, trainable_variables))
+        e_ws = []
+        loss = 0
+        model_loss = 0
+        total_loss = 0
+        with tf.GradientTape() as tape:
+            features = self.encoder(img_tensor, training = True)
+            predictions, _, _ = self.decoder((target, features), training=True) # (None, 16, 5001)
+            for i in range(1, target.shape[1]): # (None, 15)
+                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
+            scce = (loss / int(target.shape[1]))
+            if len(self.encoder.losses) != 0:
+                model_loss += tf.add_n(self.encoder.losses) # fc reg loss
+            if len(self.decoder.losses) != 0:
+                model_loss += tf.add_n(self.decoder.losses) # lstm reg loss
+            total_loss = tf.add(scce, model_loss)
 
-        # reset state
-        self.decoder.lstm.reset_states()
+        for (grad, param) in zip(gradients, trainable_variables):
+            e_w = grad * scale
+            param.assign_add(e_w)
+            e_ws.append(e_w)
 
-        return {"loss": loss, "norm loss": total_loss}
+        sam_gradients = tape.gradient(total_loss, trainable_variables)
+        for (param, e_w) in zip(trainable_variables, e_ws):
+            param.assign_sub(e_w)
 
+        self.optimizer.apply_gradients(zip(sam_gradients, trainable_variables))
+            
+        return {"scce": scce, "L2": model_loss, "loss": total_loss, "encoder_weights": self.encoder.trainable_variables, "decoder_weights":self.decoder.trainable_variables}
+
+    def _grad_norm(self, gradients):
+        norm = tf.norm(
+            tf.stack([tf.norm(grad) for grad in gradients if grad is not None])
+        )
+        return norm
 
     @tf.function
     def train_step(self, img_cap):
@@ -137,89 +245,76 @@ class CaptionGenerator(tf.keras.Model):
         Train whole network on an image + target caption input 
 
         Need to be using stateful = False in the lstm init
-        """
-        #print("## Tracing graph ##")
-        # decompose dataset item
-        img_tensor, target = img_cap
 
-        loss = 0
+        Parameter
+        --------
+            img_cap : tuple (tf.tensor, tf.tensor)
+
+        Return
+        ------
+            loss : dict (l1, l2)
+        """
+        # decompose dataset item
+        img_tensor, _, target = img_cap
+
+        loss = 0 # scce loss
+        model_loss = 0 # L2 loss
 
         with tf.GradientTape() as tape:
 
             ## feature embedding
-            features = self.encoder(img_tensor)
+            features = self.encoder(img_tensor, training = True)
 
-            predictions, _, _ = self.decoder((target, features), training=True)
+            predictions, _, _ = self.decoder((target, features), training=True) # (None, 16, 5001)
 
-            ## Loop through the sentences to get the loss
-            for i in range(1, target.shape[1]):
-                loss += self.loss_function(target[:,i], predictions[:,i])
-        
-        total_loss = (loss / int(target.shape[1]))
+            # Loop through the sentences to get the loss
+            for i in range(0, target.shape[1]): # (None, 15)
+                loss += self.loss_function(target[:,i], predictions[:,i]) # maybe predictions[:,i-1]
 
-        trainable_variables = self.decoder.trainable_variables + self.encoder.trainable_variables 
+            # normalised sparse categorical cross entropy loss
+            scce = (loss / int(target.shape[1]))
 
-        gradients = tape.gradient(loss, trainable_variables)
+            if len(self.encoder.losses) != 0:
+                model_loss += tf.add_n(self.encoder.losses) # fc reg loss
+            if len(self.decoder.losses) != 0:
+                model_loss += tf.add_n(self.decoder.losses) # lstm reg loss
+            
+            total_loss = tf.add(scce, model_loss)
+            #total_loss = scce + model_loss
+            
+        trainable_variables = self.encoder.trainable_variables + self.decoder.trainable_variables
+
+        gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
             
-        return {"loss": loss, "norm loss": total_loss}
+        return {"scce": scce, "L2": model_loss, "loss": total_loss, "encoder_weights": self.encoder.trainable_variables, "decoder_weights":self.decoder.trainable_variables}
 
     @tf.function
     def test_step(self, data):
         """ Testing step
-
-        Test the network on a image + target caption input
         """
 
-        img_tensor, target = data
+        img_tensor, _, target = data
 
         loss = 0
+        model_loss = 0
 
         features = self.encoder(img_tensor)
-        predictions, _, _ = self.decoder((target, features), training=True)
+        predictions, _, _ = self.decoder((target, features))
 
-        for i in range(1, target.shape[1]):
+        for i in range(0, target.shape[1]):
             loss += self.loss_function(target[:,i], predictions[:,i])
 
-        total_loss = (loss / int(target.shape[1]))
+        scce = (loss / int(target.shape[1]))
 
-        return {"loss": loss, "norm loss": total_loss}
+        if len(self.encoder.losses) != 0:
+            model_loss += tf.add_n(self.encoder.losses) # fc reg loss
+        if len(self.decoder.losses) != 0:
+            model_loss += tf.add_n(self.decoder.losses) # lstm reg loss
 
+        total_loss = scce + model_loss
 
-
-    @tf.function
-    def old_test_step(self, data):
-        """
-        Evaluation function
-        """
-        img_tensor, target = data
-
-        loss = 0
-
-        hidden = self.decoder.reset_state(batch_size=target.shape[0])
-
-        dec_input = tf.expand_dims([self.tokenizer.word_index['<start>']] * target.shape[0], 1)
-
-        ## Pass image into LSTM - to init state
-        features = self.encoder(img_tensor)
-        features = tf.expand_dims(features, 1)
-        prediction = self.decoder(features)
-        loss += self.loss_function(target[:,0], prediction)
-        
-        for i in range(1, self.max_length):
-            x = self.decoder.embedding(dec_input)# pass the input throuhg the embedding layer now already (instead of in call) 
-            prediction, hidden = self.decoder(x)
-            loss += self.loss_function(target[:,i], prediction) 
-
-            predicted_id = tf.random.categorical(prediction, 1, dtype=tf.int32)
-
-            #dec_input = predicted_id #tf.expand_dims([predicted_id], 1)
-            # TODO: Do we use teacher forcing in test??
-            dec_input = tf.expand_dims(target[:,i], 1)
-
-        total_loss = (loss / int(target.shape[1]))
-
-        return {"loss": loss, "norm loss": total_loss}
+        return {"scce": scce, "L2": model_loss, "loss": total_loss}
 
     def loss_function(self, real, pred):
         """ Loss function
@@ -227,20 +322,17 @@ class CaptionGenerator(tf.keras.Model):
         real - (bs, 1) the i-th word of a captions for all batches
         pred - (bs, vs) a value for all words in the vocab  
         """
-        #print("-----loss function------")
-        #print("real", real.shape, real.numpy())
-        #print("pred", pred.shape, pred.numpy())
         mask = tf.math.logical_not(tf.math.equal(real, 0))
-        #print("mask", mask.numpy())
-        ##loss_ = self.loss_object(real, pred)
-        loss_ = self.compiled_loss(real, pred, regularization_losses=self.losses)
+        loss_ = self.compiled_loss(real, pred)#, regularization_losses=self.losses)
+        
+        #loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+        #loss_ = loss_fn(real, pred)
 
         mask = tf.cast(mask, dtype=loss_.dtype)
         loss_ *= mask
 
-        #print("mask cast", mask.numpy())
-        #print("loss", loss_.numpy())
-
         return tf.reduce_mean(loss_)
 
-
+    def prediction(self, features):
+        features = self.encoder(features)
+        

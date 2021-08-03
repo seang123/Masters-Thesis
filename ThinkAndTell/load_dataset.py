@@ -15,8 +15,8 @@ def load_dataset(subj, subset, nparallel):
     stds = np.loadtxt(os.path.join(c["NSD_STAT"], "stds_" + subj + ".csv"))
     
     ds = tf.data.TFRecordDataset(filepaths, num_parallel_reads=nparallel)
-    ds = ds.map(lambda x: tfu.read_tfrecord_with_info(x))
-    ds = ds.map(lambda a, b, c, d, e, f: (a, e, f)) # (betas, idx, img)
-    ds = ds.map(lambda a, e, f: ((a - means) / stds, e, f))
+    ds = ds.map(lambda x: tfu.read_tfrecord_with_info(x)) # betas, dim, subj, sess, idx, id73k 
+    ds = ds.map(lambda a, b, c, d, e, f: (a, f)) # (betas, idx, img)
+    ds = ds.map(lambda a, f: ((a - means) / stds, f))
     
     return ds

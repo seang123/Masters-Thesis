@@ -142,6 +142,7 @@ dmypy.json
 
 # ignore checkpoint
 checkpoints/
+training_data/
 
 # logs
 logs/
@@ -152,6 +153,8 @@ figures/
 # image features as binary
 /CNN_RNN/img_features_binary
 /ShowAndTell/img_features_vgg16
+
+/training_data/*
 
 # model information
 /CNN_RNN/*.txt
@@ -166,3 +169,16 @@ figures/
 /ThinkAndTell/backup_checkpoints
 /ThinkAndTell/notes.md
 /ThinkAndTell/test_output
+/ThinkAndTell/SVD/data
+/ThinkAndTell/backups
+/ThinkAndTell/tuner_data
+
+# Soloist model
+soloist/Modified-Show-And-Tell-Kera/data/
+soloist/Modified-Show-And-Tell-Kera/datasets/
+soloist/Modified-Show-And-Tell-Kera/logs/
+soloist/Show-And-Tell
+
+
+/DeepRNN/
+
