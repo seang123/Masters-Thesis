@@ -21,7 +21,8 @@ from NIC import *
 from preprocessing.image import *
 from preprocessing.text import *
 
-from data_loader import load_data_pca, load_data_img, data_generator
+#from data_loader import load_data_pca, load_data_img, data_generator
+from data_loader import *
 import my_utils as uu
 import sys, os
 from nsd_access import NSDAccess
@@ -401,7 +402,6 @@ def my_decoder(inf_model, tokenizer, features, input_size, unit_size, post_proce
     return sents
 
 
-
 def my_eval(model_dir, out_path):
     """Main evaluation function
 
@@ -427,9 +427,10 @@ def my_eval(model_dir, out_path):
     max_len = params_dir['max_length']
 
 #    data_train, train_vector, data_val, val_vector, tokenizer = load_data_pca(_max_length=20)
-    _, _, data_val, val_vector, tokenizer, _, val_keys = load_data_img(_max_length=20)
+    data_train, train_vector, data_val, val_vector, tokenizer, _, _, train_keys, val_keys = load_data_img2(_max_length=20)
 
-    val_generator = data_generator(data_val, val_vector, _unit_size = units, _vocab_size = vocab_size, _batch_size = 20, training=False)
+    val_generator = data_generator(data_val, val_vector, _unit_size = units, _vocab_size = vocab_size, _batch_size = 10, training=False)
+    #val_generator =  data_generator(data_train, train_vector, _unit_size= units, _vocab_size = vocab_size, _batch_size = 10, training=False)
     
 
     NIC_inference = greedy_inference_model(vocab_size, input_size, max_len)
@@ -437,14 +438,54 @@ def my_eval(model_dir, out_path):
 
     [test_features, words, a0, c0], target = val_generator.__next__()
 
+    """
+    candidates = []
+    for i in val_generator:
+        [test_features, words, a0, c0], target = i
+        print("target shape:", target.shape) # (10, 20, 5000)
+        out_candidates = my_decoder(NIC_inference, tokenizer, test_features, input_size, units, True)
+        
+        most_likely = np.argmax(target, axis = -1) # out: (N, max_length)
+        print("most_likely:", most_likely.shape)
+        print(tokenizer.sequences_to_texts(most_likely))
+
+        print(out_candidates)
+        break
+
+    sys.exit(0)
+    """
+    print("val_vector:", val_vector.shape)
+
+    """
+    vec = val_vector[0]
+    word = []
+    for w in vec:
+        word.append( tokenizer.index_word[w] ) 
+    print(word)
+    img = nsd_loader.read_images(val_keys[100])
+    fig = plt.figure()
+    plt.imshow(img)
+    plt.title(f"{word}")
+    plt.savefig(f"./img_{val_keys[100]}.png")
+    plt.close(fig)
+    """
+
+        
+
     print("test_features:", test_features.shape)
     print("words:", words.shape)
 
     test_candidates = my_decoder(NIC_inference, tokenizer, test_features, input_size, units, True)
 
+    target_sentences = np.argmax(target, axis = -1)
+    target_sentences = tokenizer.sequences_to_texts(target_sentences)
+
     ## Save images with generated captions
     for k,v in enumerate(test_candidates):
-        print(v, " - ", val_keys[k])
+        #print(v, " - ", target_sentences[k], " - ", val_keys[k])
+        print("Candidate:", v)
+        print("Target:", target_sentences[k])
+        print(val_keys[k], "\n")
 
         img = nsd_loader.read_images(val_keys[k])
         fig = plt.figure()
@@ -468,6 +509,9 @@ if __name__ == '__main__':
     model_dir = './data/img/model-ep024-loss1.7022-val_loss1.5508.h5'
     model_dir = './data/img_2/model-ep008-loss1.7451-val_loss1.6743.h5'
     model_dir = './data/img_3/model-ep019-loss1.6904-val_loss1.6130.h5'
+    model_dir = './data/img/model-ep068-loss1.6716-val_loss1.4749.h5' # 200 epochs trained on images
+    model_dir = './data/bs256/model-ep170-loss1.6274-val_loss1.5146.h5'
+    model_dir = './data/new_loader/model-ep002-loss1.8410-val_loss1.7445.h5' # new load method
 
     #img_ids, test_references, candidates = evaluate_one(model_dir, method='b', beam_width = 5, alpha = 0.6)
 

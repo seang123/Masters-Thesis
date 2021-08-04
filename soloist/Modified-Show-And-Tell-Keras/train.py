@@ -31,7 +31,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import json
 
-from data_loader import load_data_pca, data_generator, load_data_img
+#from data_loader import load_data_pca, data_generator, load_data_img
+from data_loader import *
 import data_loader
 from parameters import params_dir
 
@@ -47,7 +48,7 @@ def train(_epochs, _input_size, _unit_size, _batch_size = 128, _max_length = 20,
     data_dir = params_dir['data_dir']
     
     #data_train, train_vector, data_val, val_vector, tokenizer = load_pca_data(_max_length = _max_length)
-    data_train, train_vector, data_val, val_vector, tokenizer, _, _ = load_data_img(_max_length = _max_length, train_test_split = 0.9)
+    data_train, train_vector, data_val, val_vector, tokenizer, _, _ = load_data_img2(_max_length = _max_length, train_test_split = 0.9)
     
     vocab_size = tokenizer.num_words
     print("vocb_size", vocab_size)
@@ -55,7 +56,7 @@ def train(_epochs, _input_size, _unit_size, _batch_size = 128, _max_length = 20,
     train_generator = data_generator(data_train, train_vector, _unit_size = _unit_size, _vocab_size=vocab_size, _batch_size = _batch_size)
     val_generator = data_generator(data_val, val_vector, _unit_size = _unit_size, _vocab_size=vocab_size, _batch_size = _batch_size)
 
-    [features, text, a0, c0], target = train_generator.__next__()
+#    [features, text, a0, c0], target = train_generator.__next__()
 
     ## Define model
     NIC_model = model(vocab_size, _input_size, _max_length, _reg)

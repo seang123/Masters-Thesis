@@ -1,6 +1,6 @@
 params_dir = {
-        "data_dir": "./data/img",
-        "epochs": 200, # 5 hours for 100 epochs 
+        "data_dir": "./data/new_loader",
+        "epochs": 25, # 5 hours for 100 epochs @ bs=128
         "batch_size": 128,
         "max_length": 20,
 

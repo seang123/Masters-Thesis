@@ -244,6 +244,87 @@ def load_data_img(top_k = 5000, _max_length = 20, train_test_split = 0.9):
 
     return data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys
 
+def load_data_img2(top_k = 5000, _max_length = 20, train_test_split = 0.9):
+
+    img_features = np.load('../../ShowAndTell/img_features_vgg16').astype(np.float32) # (73_000, 4096)
+
+    ## Train | Val split keys
+    # shuffle the keys
+    # Note: this only shuffles the images, the captions relating to an image still show up in order
+    keys = np.loadtxt('./shuffled_73k_keys.txt').astype(np.int32)
+    #keys = np.arange(0, 73000)
+    #np.random.shuffle(keys)
+    slice_index = int(len(keys) * train_test_split)
+    train_keys, val_keys = keys[:slice_index], keys[slice_index:]
+
+#    assert( np.any(keys != np.arange(0, 73000)) ), "keys not shuffled"
+
+    annt_dict = uu.load_json("../../modified_annotations_dictionary.json")
+
+    ## Extract the captions from the data file
+    # Split based on shuffled train/val split key
+    # Training captions
+    captions_train = []
+    for i in train_keys:
+        caps = annt_dict[str(i)]
+        for cap in caps:
+            idx_cap = (i, cap)
+            captions_train.append(idx_cap)
+
+    captions_val = []
+    for i in val_keys:
+        caps = annt_dict[str(i)]
+        for cap in caps:
+            idx_cap = (i, cap)
+            captions_val.append(idx_cap)
+
+
+    all_captions = captions_train + captions_val
+    all_caps = [i[1] for i in all_captions]
+
+    tokenizer = keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters = '!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
+    tokenizer.fit_on_texts(all_caps)
+    tokenizer.word_index['<pad>'] = 0
+    tokenizer.index_word[0] = '<pad>'
+
+    
+    train_seqs = tokenizer.texts_to_sequences([i[1] for i in captions_train])
+    train_vector = keras.preprocessing.sequence.pad_sequences(train_seqs, maxlen=_max_length, padding='post')
+    print("train_vector:", train_vector.shape)
+
+    val_seqs = tokenizer.texts_to_sequences([i[1] for i in captions_val])
+    val_vector = keras.preprocessing.sequence.pad_sequences(val_seqs, maxlen=_max_length, padding='post')
+    print("val_vector:", val_vector.shape)
+
+    data_train = []
+    for i in captions_train:
+        idx = i[0]
+        img = img_features[idx]
+        data_train.append(img)
+
+    data_val = []
+    for i in captions_val:
+        idx = i[0]
+        img = img_features[idx]
+        data_val.append(img)
+    
+    data_train = np.array(data_train)
+    data_val   = np.array(data_val)
+    print("data_train:",data_train.shape)
+    print("data_val:",data_val.shape)
+
+    assert( data_train.shape[0] == train_vector.shape[0])
+    assert( data_val.shape[0] == val_vector.shape[0])
+
+    ext_train_keys = [i[0] for i in captions_train]
+    ext_val_keys = [i[0] for i in captions_val]
+    
+    assert( data_train.shape[0] == len(ext_train_keys) ) 
+    assert( data_val.shape[0] == len(ext_val_keys) )
+
+    return data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys, ext_train_keys, ext_val_keys
+
+
 
 def load_captions():
     """
@@ -268,43 +349,6 @@ def load_captions():
 
     print(f"{total_nr_captions} captions loaded")
     return index_captions, all_captions
-
-def load_data_img2(train_test_split_percentage = 0.9):
-    """ Load VGG16 image data
-    
-    """
-
-    ## Load the pre-shuffled keys (for consistent train/val split)
-    shuffled_keys = np.loadtxt("./shuffled_73k_keys.txt")
-
-    slice_index = int(len(keys) * train_test_split_percentage)
-    train_keys, val_keys = shuffled_keys[:slice_index], shuffled_keys[slice_index:]
-
-
-    ## Load the captions
-    index_caption, all_captions = load_captions()
-
-    print(index_captions[0])
-    print(all_captions[0])
-
-    tokenizer = keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters = '!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
-
-    tokenizer.fit_on_texts(all_captions)
-    tokenizer.word_index['<pad>'] = 0
-    tokenizer.index_word[0] = '<pad>'
-
-    """## Create the tokenizer sequences for each caption
-    train_seqs = tokenizer.texts_to_sequences([i for sublist in captions_train for i in sublist])
-    train_vector = keras.preprocessing.sequence.pad_sequences(train_seqs, maxlen=_max_length, padding='post')
-    print("train_vector:", train_vector.shape)
-
-    val_seqs = tokenizer.texts_to_sequences([i for sublist in captions_val for i in sublist])
-    val_vector = keras.preprocessing.sequence.pad_sequences(val_seqs, maxlen=_max_length, padding='post')
-    print("val_vector:", val_vector.shape)
-    """
-
-
-    return index_captions, tokenizer
 
 
 
@@ -338,7 +382,10 @@ def data_generator(_data, _captions, _unit_size, _vocab_size, _batch_size, train
     while True:
         for i in range(0, N, _batch_size):
 
+            # The relevant captions for the batch
             text = _captions[i:i+_batch_size]
+
+            # Inital states needed for the lstm
             init_state = np.zeros([text.shape[0], _unit_size])
 
             # create a target caption - this is just the input shifted left one step/word
