@@ -1,5 +1,11 @@
 
+There are approx. 12000 duplicate captions
+If we take a list of all captions and then the set of that list:
+ - all caps: 365_193
+ - set all caps: 353_344
 
 TODO:
 
-- 
+-  in evaluate.py plot the betas as a line (mayeb only every 100th datapoint) also show the caption and NSD key. Make sure that the betas are unique for every trial.
+
+    Current issue is that the evaluation shows the same caption for every image for the betas at the moment. (Images is working). 

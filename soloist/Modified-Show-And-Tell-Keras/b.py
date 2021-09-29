@@ -2,6 +2,11 @@ import keras
 from tensorflow.python.client import device_lib
 import numpy as np
 
+## Generate shuffled 73k MSCOCO keys
+#
+# 
+#
+
 
 print(keras.__version__)
 print(device_lib.list_local_devices())
