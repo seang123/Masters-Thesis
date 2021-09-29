@@ -10,6 +10,7 @@ https://www.cv-foundation.org/openaccess/content_cvpr_2015/papers/Vinyals_Show_a
 
 import math
 import os
+import click
 
 import tensorflow as tf
 import keras
@@ -21,7 +22,9 @@ from NIC import *
 from preprocessing.image import *
 from preprocessing.text import *
 
-from data_loader import load_data_pca, load_data_img, data_generator
+#from data_loader import load_data_pca, load_data_img, data_generator
+import data_loader
+import load_betas
 import my_utils as uu
 import sys, os
 from nsd_access import NSDAccess
@@ -31,6 +34,10 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from parameters import params_dir
+import my_utils as uu
+
+# set np seed
+np.random.seed(42)
 
 
 #gpu_to_use = 0
@@ -364,7 +371,8 @@ def my_decoder(inf_model, tokenizer, features, input_size, unit_size, post_proce
     '''Calls the inference version of the training model for word-by-word prediction giving just the input image and a starting word
     '''
 
-    assert(features.shape[0]>0 and features.shape[1] == input_size)
+    assert(features.shape[0] > 0), "batch size needs to be greater than 0"
+    assert(features.shape[1] == input_size), f"feature size {features.shape[1]} doesn't match expected feature size {input_size}"
 
     # Batch size
     N = features.shape[0]
@@ -398,18 +406,128 @@ def my_decoder(inf_model, tokenizer, features, input_size, unit_size, post_proce
                 sents_pp.append(sent)
         sents = sents_pp
 
-    return sents
+    return sents, y_preds
+
+def plot_loss(data_dir, out_path):
+    """ Create a loss plot from the training_log.csv file """
+
+    df = pd.read_csv(data_dir + '/training_log.csv')
+    df2 = pd.read_csv(data_dir + '/batch_training_log.csv')
+
+    # Epoch loss
+    fig, axs = plt.subplots(2, 1, sharex=True) 
+
+    axs[0].plot(df.loss, label = 'train')
+    axs[0].plot(df.val_loss, label = 'val')
+    axs[0].set_title('Categorical Cross-entropy Loss')
+    axs[0].legend()
+
+    axs[1].axhline(0.50, color = 'k', linestyle = '--')
+    axs[1].plot(df.accuracy, label = 'tain')
+    axs[1].plot(df.val_accuracy, label = 'val')
+    axs[1].set_title('Categorical Accuracy')
+    axs[1].set_xlabel('Epoch')
+    axs[1].legend()
+
+    plt.savefig(f"{out_path}/training_loss.png")
+    plt.close(fig)
+
+    # Batch loss
+    fig, axs = plt.subplots(2, 1, sharex=True) 
+
+    axs[0].plot(df.loss, label = 'train')
+    axs[0].set_title('Categorical Cross-entropy Loss')
+    axs[0].legend()
+
+    axs[1].axhline(0.50, color = 'k', linestyle = '--')
+    axs[1].plot(df.accuracy, label = 'tain')
+    axs[1].set_title('Categorical Accuracy')
+    axs[1].set_xlabel('Epoch')
+    axs[1].legend()
+
+    plt.savefig(f"{out_path}/batch_training_loss.png")
+    plt.close(fig)
+
+    return
+
+def categorical_accuracy(y_pred, y_true):
+    """ Compute categorical accuracy between two matricies
+
+    Parameters
+    ----------
+        y_pred : ndarray
+            predictions - one-hot encoded
+        y_true : ndarray
+            true labels - one-hot encoded 
+
+    Returns
+    -------
+        z : float
+            categorical accuracy
+    """
+
+    assert y_pred.ndim == 3 and y_true.ndim == 3, "Arrays need to be 3 dimensional (batch, n_words, vocab_size)"
+
+    y_pred_am = np.argmax(y_pred, axis=2)
+    y_true_am = np.argmax(y_true, axis=2)
+
+    z = y_pred_am == y_true_am
+
+    z = np.sum(z, axis=1) / y_pred_am.shape[1]
+    return z
 
 
+def my_bleu(candidate: str, img_key: int):
+    """ Calculates the BLEU score for a given candidate sentence and all 5 of its respective possible target captions
 
-def my_eval(model_dir, out_path):
+    Parameters
+    ----------
+        candidate : str
+            the model generated caption
+        img_key : int
+            the corresponding NSD key of this trial
+
+    Returns
+    -------
+        bleu : float
+            the BLEU score
+
+    """
+
+    candidate = candidate.split(" ")
+
+    annt_dict = uu.load_json('../../modified_annotations_dictionary.json')
+
+    targets = annt_dict[str(img_key)] # list of strings
+
+    references = []
+    for i in targets:
+        words = i.split(" ")
+        words = words[1:1+len(candidate)]
+        references.append(words)
+
+    chencherry = SmoothingFunction()
+    bleu = sentence_bleu(references, candidate, smoothing_function=chencherry.method4)
+
+    return bleu
+
+
+def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
     """Main evaluation function
 
     Loads the validation(test) data set and runs the decoder model 
 
     Parameters
     ==========
-        model_dir  -  path location of the model weights file to load
+        model_dir : str
+            path location of the model weights file to load
+        out_path : str
+            where to store outputs
+        BATCH_SIZE_EVAL : int
+            number of samples to evaluate
+        GEN_IMG : bool
+            whether to output images with the candidate captions
+            
     Return
     ======
         None
@@ -426,34 +544,99 @@ def my_eval(model_dir, out_path):
     vocab_size = params_dir['top_k']
     max_len = params_dir['max_length']
 
-#    data_train, train_vector, data_val, val_vector, tokenizer = load_data_pca(_max_length=20)
-    _, _, data_val, val_vector, tokenizer, _, val_keys = load_data_img(_max_length=20)
 
-    val_generator = data_generator(data_val, val_vector, _unit_size = units, _vocab_size = vocab_size, _batch_size = 20, training=False)
+    # Data Loader
+    #data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = data_loader.load_data_img(_max_length = max_len, train_test_split = 0.9)
+    # _, _, data_val, val_vector, tokenizer, _, ext_val_keys = load_betas.load_data_betas_partial(load_train=False, load_val=True, shuffle_data=True, _max_length = max_len)
+
+    data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = load_betas.load_data_betas(_max_length = max_len)
+
+
+
+    #data_train     = data_train[:1000,:]
+    #train_vector   = train_vector[:1000,:]
+    #ext_train_keys = ext_train_keys[:1000]
+
+    print("data_train", data_train.shape)
+    print("train_vector", train_vector.shape)
+    print("ext_trian_keys", ext_train_keys.shape)
+
+    #with open( 'eval_keys.txt', 'w') as f:
+    #    for i in range(0, 1000):
+    #            f.write(f"{ext_train_keys[i]}\n")
+
+    #sentences = tokenizer.sequences_to_texts( train_vector )
+    #print("sentences", len(sentences))
+    #ts = []
+    #for k, v in enumerate(sentences):
+    #    ts.append(v)
     
+    #for i in range(10):
+    #    print(ts[i])
 
-    NIC_inference = greedy_inference_model(vocab_size, input_size, max_len)
+    #c = 0
+    #with open( 'eval_captions.txt', 'w' ) as f:
+    #    for item in ts:
+    #        c += 1
+    #        f.write( "%s\n" % item )
+    #print(c)
+    #sys.exit(0)
+
+    # Data Batch Generator
+    val_generator = data_loader.data_generator(data_train, train_vector, ext_train_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
+
+    ## Model
+    NIC_inference = greedy_inference_model(vocab_size, input_size, max_len, params_dir['L2_reg'] )
     NIC_inference.load_weights(model_dir, by_name = True, skip_mismatch=True)
 
-    [test_features, words, a0, c0], target = val_generator.__next__()
+    [test_features, words, a0, c0], target, img_keys = val_generator.__next__()
 
+    print("img keys:", img_keys) 
     print("test_features:", test_features.shape)
     print("words:", words.shape)
 
-    test_candidates = my_decoder(NIC_inference, tokenizer, test_features, input_size, units, True)
+    ## Decoder
+    test_candidates, y_preds = my_decoder(NIC_inference, tokenizer, test_features, input_size, units, True)
 
+    target_sentences = np.argmax(target, axis = -1)
+    target_sentences = tokenizer.sequences_to_texts(target_sentences)
+
+    ## categorical accuracy
+    cat_acc = categorical_accuracy(y_preds, target)
+
+    # ts = []
+    # for k, v in enumerate(test_candidates):
+    #     target_cap = target_sentences[k]
+    #     ts.append(target_cap)
+    #
+    # with open( 'target_caps.txt', 'w' ) as f:
+    #     for item in ts:
+    #         f.write( "%s\n" % item )
+    # sys.exit(0)
+
+    avg_bleu = 0
     ## Save images with generated captions
     for k,v in enumerate(test_candidates):
-        print(v, " - ", val_keys[k])
+        bleu = my_bleu(v, img_keys[k])
+        avg_bleu += bleu
+        print("Candidate:", v)
+        target_cap = target_sentences[k].partition("<end>")
+        target_cap = target_cap[0] + target_cap[1]
+        print("Target   :", target_cap)
+        print("Accuracy: ", cat_acc[k])
+        print("BLEU:     ", bleu)
+        print(img_keys[k], "\n")
 
-        img = nsd_loader.read_images(val_keys[k])
-        fig = plt.figure()
-        plt.imshow(img)
-        plt.title(f"{v}")
-        plt.savefig(f"{out_path}/test_img_{val_keys[k]}.png")
-        plt.close(fig)
+        if GEN_IMG:
+            img = nsd_loader.read_images(img_keys[k])
+            fig = plt.figure()
+            plt.imshow(img)
+            plt.title(f"{v}")
+            plt.savefig(f"{out_path}/test_img_{img_keys[k]}.png")
+            plt.close(fig)
 
-
+    print(f"mean BLEU score: {(avg_bleu / len(test_candidates)):.4f}")
+    print(f"mean categorical-accuracy: {np.mean(cat_acc):.4f}")
     print("Done.")
     
     return
@@ -462,22 +645,20 @@ def my_eval(model_dir, out_path):
 
 if __name__ == '__main__':
 
-    model_dir = './model-params-his/current_best.h5'
-    model_dir = './model-params/current_best.h5'
-    model_dir = './data/model-ep059-loss1.7367-val_loss1.6887.h5'
-    model_dir = './data/img/model-ep024-loss1.7022-val_loss1.5508.h5'
-    model_dir = './data/img_2/model-ep008-loss1.7451-val_loss1.6743.h5'
-    model_dir = './data/img_3/model-ep019-loss1.6904-val_loss1.6130.h5'
+    model_dir = params_dir['data_dir'] + '/latest-model.h5'
+#    model_dir = './data/pca_short_lowLR/model-ep046-loss3.0974-val_loss3.0367.h5'
 
-    #img_ids, test_references, candidates = evaluate_one(model_dir, method='b', beam_width = 5, alpha = 0.6)
+    # how many images to evaluate
+    BATCH_SIZE_EVAL = 10
+    GEN_IMG = False
 
     out_path = params_dir['data_dir'] + '/eval_out/'
     if not os.path.isdir(out_path):
         os.makedirs(out_path)
         print("> created data folder:", out_path)
 
-    my_eval(model_dir, out_path)
+    my_eval(model_dir, out_path, BATCH_SIZE_EVAL, GEN_IMG)
 
-
+    plot_loss(params_dir['data_dir'], out_path)
 
 

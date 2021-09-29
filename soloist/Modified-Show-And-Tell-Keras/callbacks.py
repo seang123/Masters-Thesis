@@ -1,49 +1,63 @@
 import keras
+import numpy as np
+import csv
 
-class BatchHistory(keras.callbacks.Callback):
-    def on_train_begin(self, logs={}):
-        
-        # per-batch loss
-        self.loss = []
-        # per-batch acc
-        self.accuracy = []
+class EarlyStoppingByLossVal(keras.callbacks.Callback):
+        def __init__(self, monitor='val_loss', value=0.00001, verbose=1):
+            super(keras.callbacks.Callback, self).__init__()
+            self.monitor = monitor
+            self.value = value
+            self.verbose = verbose
 
-        # per-epoch loss
-        self.epoch_loss = []
-        self.epoch_val_loss = []
+        def on_epoch_end(self, epoch, logs={}):
+            current = logs.get(self.monitor)
+            if current is None:
+                print(f"Early stopping requires {self.monitor} be available!")
 
-        # per_epoch accuracy 
-        self.epoch_accuracy = []
-        self.epoch_val_accuracy = []
+            if current < self.value:
+                if self.verbose > 0:
+                    print(f"Epoch {epoch}: early stopping. Loss < {self.value}")
+                self.model.stop_training = True
 
-    def on_batch_end(self, batch, logs={}):
-        """ Store loss after each batch
-        Only valid for the training loss, not validation loss
-        """
-        self.loss.append(logs.get('loss'))
-        self.accuracy.append(logs.get('accuracy'))
+class Predict(keras.callbacks.Callback):
+    pass
 
-    def on_epoch_end(self, epoch, logs={}):
-        """ Store loss value at the end of each epoch
-        """
-        self.epoch_loss.append(logs.get('loss'))
-        self.epoch_accuracy.append(logs.get('accuracy'))
+class BatchLoss(keras.callbacks.Callback):
 
-        self.epoch_val_loss.append(logs.get('val_loss'))
-        self.epoch_val_accuracy.append(logs.get('val_accuracy'))
+    def __init__(self, file_name, location):
 
-        # TODO: store json loss data after each epoch
+        # training store
+        self.f = open(f"{location}/{file_name}", 'w+', newline='')
+        self.writer = csv.writer(self.f)
+        self.writer.writerow(['loss', 'accuracy'])
 
-    
-    def get_loss(self):
-        """ Return a dictionary of the losses 
-        """
-        loss_dict = {}
-        loss_dict['epoch_loss'] = self.epoch_loss
-        loss_dict['accuracy'] = self.accuracy
-        loss_dict['epoch_loss'] = self.epoch_loss
-        loss_dict['epoch_val_loss'] = self.epoch_val_loss
-        loss_dict['epoch_accuracy'] = self.epoch_accuracy
-        loss_dict['epoch_val_accuracy'] = self.epoch_val_accuracy
+        # validation store
+        self.g = open(f"{location}/val_{file_name}", 'w+', newline='')
+        self.val_writer = csv.writer(self.g)
+        self.val_writer.writerow(['val_loss', 'val_accuracy'])
 
-        return loss_dict
+    def on_epoch_begin(self, epoch, logs=None):
+        self.batch_losses = []
+
+    def on_epoch_end(self, epoch, logs=None):
+        max_batch_loss = max(self.batch_losses)
+        min_batch_loss = min(self.batch_losses)
+        print(f"Max batch loss: {max_batch_loss:.4f}\nMin batch loss: {min_batch_loss:.4f}\n")
+
+    def on_train_batch_end(self, batch, logs=None):
+        loss = logs['loss']
+        accuracy = logs['accuracy']
+        self.batch_losses.append(loss)
+
+        self.writer.writerow([loss, accuracy])
+
+    def on_test_batch_end(self, batch, logs=None):
+        loss = logs['loss']
+        accuracy = logs['accuracy']
+
+        self.val_writer.writerow([loss, accuracy])
+
+
+    def on_train_end(self, logs=None):
+        self.f.close()
+        self.g.close()

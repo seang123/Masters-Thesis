@@ -17,9 +17,10 @@ text_emb_lstm: Define the decoding part of model used in beam search
 
 import numpy as np
 from keras import backend as K
-from keras import regularizers
+from keras import regularizers, initializers
+from keras.initializers import RandomUniform
 from keras.layers import (LSTM, BatchNormalization, Dense, Dropout, Embedding,
-                          Input, Lambda, TimeDistributed)
+                          Input, Lambda, TimeDistributed, Bidirectional, LeakyReLU)
 from keras.models import Model
 
 unit_size = 512
@@ -29,47 +30,59 @@ def model(vocab_size, input_size, max_len, reg):
     # Image embedding
     #inputs1 = Input(shape=(2048,)) # was (2048,)
     inputs1 = Input(shape=(input_size,))
-    X_img = Dropout(0.5)(inputs1)
-    X_img = Dense(unit_size, use_bias = False, 
+    X_img = Dropout(0.1)(inputs1) # was 0.5
+    X_img = Dense(unit_size, use_bias = True, # was False
                         kernel_regularizer=regularizers.l2(reg),
-                        name = 'dense_img')(X_img)
-    X_img = BatchNormalization(name='batch_normalization_img')(X_img)
+                        kernel_initializer=RandomUniform(-0.08, 0.08),
+                        name = 'dense_img')(inputs1)#(X_img)
+    X_img = Dropout(0.2)(X_img) # not here originally 
+    #X_img = LeakyReLU(alpha=0.1)(X_img)
+    # X_img = BatchNormalization(name='batch_normalization_img')(X_img)
     X_img = Lambda(lambda x : K.expand_dims(x, axis=1))(X_img)
 
     # Text embedding
     inputs2 = Input(shape=(max_len,))
     X_text = Embedding(vocab_size, unit_size, mask_zero = True, name = 'emb_text')(inputs2)
-    X_text = Dropout(0.5)(X_text)
+    X_text = Dropout(0.2)(X_text)
 
     # Initial States
     a0 = Input(shape=(unit_size,))
     c0 = Input(shape=(unit_size,))
 
-    LSTMLayer = LSTM(unit_size, return_sequences = True, return_state = True, dropout=0.5, name = 'lstm')
+    LSTMLayer= LSTM(unit_size, 
+                    return_sequences = True, 
+                    return_state = True, 
+                    kernel_regularizer = regularizers.l2(reg),
+                    bias_regularizer = regularizers.l2(reg),
+                    name = 'lstm') #dropout=0.5, name = 'lstm')
 
     # Take image embedding as the first input to LSTM
     _, a, c = LSTMLayer(X_img, initial_state=[a0, c0])
 
     A, _, _ = LSTMLayer(X_text, initial_state=[a, c])
     output = TimeDistributed(Dense(vocab_size, activation='softmax',
-                                     kernel_regularizer = regularizers.l2(reg), 
-                                     bias_regularizer = regularizers.l2(reg)), name = 'time_distributed_softmax')(A)
+                                    kernel_regularizer = regularizers.l2(reg), 
+                                    bias_regularizer = regularizers.l2(reg), 
+                                    kernel_initializer = RandomUniform(-0.08, 0.08)
+                            ),
+                            name = 'time_distributed_softmax')(A)
 
     return Model(inputs=[inputs1, inputs2, a0, c0], outputs=output, name='NIC')
 
 
-def greedy_inference_model(vocab_size, input_size, max_len):
+def greedy_inference_model(vocab_size, input_size, max_len, reg):
     
-    EncoderDense = Dense(unit_size, use_bias=False, name = 'dense_img')
+    EncoderDense = Dense(unit_size, use_bias=True, name = 'dense_img')
     EmbeddingLayer = Embedding(vocab_size, unit_size, mask_zero = True, name = 'emb_text')
     LSTMLayer = LSTM(unit_size, return_state = True, name = 'lstm')
     SoftmaxLayer = Dense(vocab_size, activation='softmax', name = 'time_distributed_softmax')
-    BatchNormLayer = BatchNormalization(name='batch_normalization_img')
+    # BatchNormLayer = BatchNormalization(name='batch_normalization_img')
 
     # Image embedding
     inputs1 = Input(shape=(input_size,)) # 2048
     X_img = EncoderDense(inputs1)
-    X_img = BatchNormLayer(X_img)
+    #X_img = LeakyReLU(alpha=0.1)(X_img)
+    # X_img = BatchNormLayer(X_img)
     X_img = Lambda(lambda x : K.expand_dims(x, axis=1))(X_img)
 
     # Text embedding
@@ -98,6 +111,8 @@ def greedy_inference_model(vocab_size, input_size, max_len):
 
 def image_dense_lstm():
 
+    raise Exception("Don't use this") 
+
     EncoderDense = Dense(unit_size, use_bias = False, name = 'dense_img')
     BatchNormLayer = BatchNormalization(name = 'batch_normalization_img')
     LSTMLayer = LSTM(unit_size, return_state = True, name = 'lstm')
@@ -116,6 +131,8 @@ def image_dense_lstm():
 
 
 def text_emb_lstm(vocab_size):
+
+    raise Exception("Don't use this")
 
     EmbeddingLayer = Embedding(vocab_size, unit_size, mask_zero = True, name='emb_text')
     LSTMLayer = LSTM(unit_size, return_state = True, name='lstm')
