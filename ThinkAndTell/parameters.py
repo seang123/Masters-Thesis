@@ -1,5 +1,5 @@
 parameters = {
-        "EPOCHS": 5,
+        "EPOCHS": 2,
         "BATCH_SIZE": 128,
         "LR": 0.0001, # learning rate
         "BUFFER_SIZE": 2000,
@@ -12,7 +12,7 @@ parameters = {
         "dropout_fc": 0.3, # 0.5,
         "dropout_lstm": 0.3,
         "top_k": 5000,
-        "data_path": "./data/IMG/",
+        "data_path": "./data/jit_compile/",
         "checkpoint_path": "./checkpoints/",
         "SAVE_CHECKPOINT": True,
         "SAVE_DATA": True

@@ -419,11 +419,12 @@ def plot_loss(data_dir, out_path):
 
     axs[0].plot(df.loss, label = 'train')
     axs[0].plot(df.val_loss, label = 'val')
-    axs[0].set_title('Categorical Cross-entropy Loss')
+    axs[0].set_title('Cross-entropy Loss')
     axs[0].legend()
 
     axs[1].axhline(0.50, color = 'k', linestyle = '--')
-    axs[1].plot(df.accuracy, label = 'tain')
+    axs[1].axhline(1.00, color = 'k', linestyle = ':')
+    axs[1].plot(df.accuracy, label = 'train')
     axs[1].plot(df.val_accuracy, label = 'val')
     axs[1].set_title('Categorical Accuracy')
     axs[1].set_xlabel('Epoch')
@@ -435,12 +436,12 @@ def plot_loss(data_dir, out_path):
     # Batch loss
     fig, axs = plt.subplots(2, 1, sharex=True) 
 
-    axs[0].plot(df.loss, label = 'train')
+    axs[0].plot(df2.loss, label = 'train')
     axs[0].set_title('Categorical Cross-entropy Loss')
     axs[0].legend()
 
     axs[1].axhline(0.50, color = 'k', linestyle = '--')
-    axs[1].plot(df.accuracy, label = 'tain')
+    axs[1].plot(df2.accuracy, label = 'tain')
     axs[1].set_title('Categorical Accuracy')
     axs[1].set_xlabel('Epoch')
     axs[1].legend()
@@ -503,7 +504,8 @@ def my_bleu(candidate: str, img_key: int):
     references = []
     for i in targets:
         words = i.split(" ")
-        words = words[1:1+len(candidate)]
+        words = words[1:len(candidate)] + ['<pad>']
+        words = [w.lower() for w in words]
         references.append(words)
 
     chencherry = SmoothingFunction()
@@ -551,6 +553,41 @@ def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
 
     data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = load_betas.load_data_betas(_max_length = max_len)
 
+    train_keys_set = list(set(ext_train_keys)) # unq keys
+    train_keys_set_split = int(len(train_keys_set) * 0.9) # split unq keys
+    train_keys_set_1 = train_keys_set[:train_keys_set_split] # 8100
+    train_keys_set_2 = train_keys_set[train_keys_set_split:] # 900
+
+    print("train_keys_set_1", len(train_keys_set_1))
+    print("train_keys_set_2", len(train_keys_set_2))
+
+
+    #train_x = np.array([np.where(train_keys == i)[0] for i in train_keys_set_1]) # (8100,)
+    #train_y = np.array([np.where(train_keys == i)[0] for i in train_keys_set_2]) # (900,)
+
+    train_x = []
+    train_y = []
+    for k, v in enumerate(ext_train_keys):
+        if v in train_keys_set_1:
+            train_x.append(k)
+        elif v in train_keys_set_2:
+            train_y.append(k)
+        else:
+            raise Exception("oops")
+
+
+    train_x = np.array(train_x)
+    train_y = np.array(train_y)
+    print("train_x", train_x.shape)
+    print("train_y", train_y.shape)
+
+    data_val = data_train[train_y]
+    val_vector = train_vector[train_y]
+    ext_val_keys = train_y
+
+    data_train = data_train[train_x]
+    train_vector = train_vector[train_x]
+    ext_train_keys = train_x
 
 
     #data_train     = data_train[:1000,:]
@@ -583,7 +620,8 @@ def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
     #sys.exit(0)
 
     # Data Batch Generator
-    val_generator = data_loader.data_generator(data_train, train_vector, ext_train_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
+#    val_generator = data_loader.data_generator(data_train, train_vector, ext_train_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
+    val_generator = data_loader.data_generator(data_val, val_vector, ext_val_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
 
     ## Model
     NIC_inference = greedy_inference_model(vocab_size, input_size, max_len, params_dir['L2_reg'] )
@@ -649,8 +687,8 @@ if __name__ == '__main__':
 #    model_dir = './data/pca_short_lowLR/model-ep046-loss3.0974-val_loss3.0367.h5'
 
     # how many images to evaluate
-    BATCH_SIZE_EVAL = 10
-    GEN_IMG = False
+    BATCH_SIZE_EVAL = 5
+    GEN_IMG = True
 
     out_path = params_dir['data_dir'] + '/eval_out/'
     if not os.path.isdir(out_path):

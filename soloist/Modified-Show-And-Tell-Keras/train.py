@@ -59,9 +59,60 @@ def train(_epochs, _input_size, _unit_size, _batch_size = 128, _max_length = 20,
     
     data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys = load_betas.load_data_betas(top_k = 5000, _max_length = _max_length)
 
-    #data_train = data_train[:1000,:]
-    #train_vector = train_vector[:1000,:]
-    #train_keys = train_keys[:1000]
+    train_keys_set = list(set(train_keys)) # unq keys
+    train_keys_set_split = int(len(train_keys_set) * 0.9) # split unq keys
+    train_keys_set_1 = train_keys_set[:train_keys_set_split] # 8100
+    train_keys_set_2 = train_keys_set[train_keys_set_split:] # 900
+
+    print("train_keys_set_1", len(train_keys_set_1))
+    print("train_keys_set_2", len(train_keys_set_2))
+
+
+    #train_x = np.array([np.where(train_keys == i)[0] for i in train_keys_set_1]) # (8100,)
+    #train_y = np.array([np.where(train_keys == i)[0] for i in train_keys_set_2]) # (900,)
+
+    train_x = []
+    train_y = []
+    for k, v in enumerate(train_keys):
+        if v in train_keys_set_1:
+            train_x.append(k)
+        elif v in train_keys_set_2:
+            train_y.append(k)
+        else:
+            raise Exception("oops")
+
+
+    train_x = np.array(train_x)
+    train_y = np.array(train_y)
+    print("train_x", train_x.shape)
+    print("train_y", train_y.shape)
+
+    data_val = data_train[train_y]
+    val_vector = train_vector[train_y]
+    val_keys = train_y
+
+    data_train = data_train[train_x]
+    train_vector = train_vector[train_x]
+    train_keys = train_x
+    
+    print("data_train   ", data_train.shape)
+    print("train_vector ", train_vector.shape)
+    print("train_keys   ", train_keys.shape)
+
+
+    """
+    train_set = int(data_train.shape[0] * 0.9)
+    print("train_set:", train_set)
+
+    data_val = data_train[train_set:,:]
+    val_vector = train_vector[train_set:,:]
+    val_keys = train_keys[train_set:]
+
+    data_train = data_train[:train_set,:]
+    train_vector = train_vector[:train_set,:]
+    train_keys = train_keys[:train_set]
+    """
+
 
     #with open( 'train_keys.txt', 'w') as f:
     #    for i in range(0, len(train_keys)):
@@ -122,7 +173,7 @@ def train(_epochs, _input_size, _unit_size, _batch_size = 128, _max_length = 20,
     history = History()
     batch_loss = custom_callbacks.BatchLoss(f'batch_training_log.csv', data_dir)
     csv_logger = CSVLogger(f'{data_dir}/training_log.csv')
-    early_stop = custom_callbacks.EarlyStoppingByLossVal('loss', value=0.005)
+    early_stop = custom_callbacks.EarlyStoppingByLossVal('loss', value=0.05)
 
     print("steps per epoch training:", data_train.shape[0]/_batch_size)
     print("steps per epoch validation:", data_val.shape[0]/_batch_size)
@@ -133,8 +184,8 @@ def train(_epochs, _input_size, _unit_size, _batch_size = 128, _max_length = 20,
                 epochs = _epochs, 
                 verbose = 1, 
                 validation_data = val_generator,
-                validation_steps = 100,
-                callbacks=[checkpoint, checkpoint2, history, csv_logger, early_stop, batch_loss],
+                validation_steps = data_val.shape[0]//_batch_size,
+                callbacks=[checkpoint2, history, csv_logger, early_stop, batch_loss],
                 initial_epoch = _initial_epoch)
     except Exception as e:
         raise e

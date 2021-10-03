@@ -193,6 +193,14 @@ def create_pairs(nsd_keys: list, betas_path: str, captions_path: str, subject: s
                 pairs.append((key, 1, cap))
                 pairs.append((key, 2, cap))
 
+    # Loop through betas (30_000)
+    #   For one betas file get the caption file
+    #       Loop through the file - create (betas_file, caption) pair
+    ls = os.listdir(betas_path)
+
+    for count, entry in enumerate(ls)
+    
+
     print(f"{len(pairs)} - key-idx-caption pairs generated")
 
     return pairs

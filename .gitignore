@@ -174,11 +174,14 @@ figures/
 /ThinkAndTell/tuner_data
 
 # Soloist model
-soloist/Modified-Show-And-Tell-Kera/data/
-soloist/Modified-Show-And-Tell-Kera/datasets/
-soloist/Modified-Show-And-Tell-Kera/logs/
-soloist/Show-And-Tell
+/soloist/Modified-Show-And-Tell-Keras/data/
+/soloist/Modified-Show-And-Tell-Keras/datasets/
+/soloist/Modified-Show-And-Tell-Keras/logs/
+/soloist/Modified-Show-And-Tell-Keras/betas
+/soloist/Show-And-Tell-Keras/
 
 
 /DeepRNN/
+
+*.png
 

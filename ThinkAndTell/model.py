@@ -238,7 +238,7 @@ class CaptionGenerator(tf.keras.Model):
         )
         return norm
 
-    @tf.function
+    @tf.function(experimental_compile=True)
     def train_step(self, img_cap):
         """Train step 
 
@@ -289,7 +289,7 @@ class CaptionGenerator(tf.keras.Model):
             
         return {"scce": scce, "L2": model_loss, "loss": total_loss, "encoder_weights": self.encoder.trainable_variables, "decoder_weights":self.decoder.trainable_variables}
 
-    @tf.function
+    @tf.function(experimental_compile=True)
     def test_step(self, data):
         """ Testing step
         """

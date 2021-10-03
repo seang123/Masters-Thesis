@@ -20,30 +20,32 @@ from keras import backend as K
 from keras import regularizers, initializers
 from keras.initializers import RandomUniform
 from keras.layers import (LSTM, BatchNormalization, Dense, Dropout, Embedding,
-                          Input, Lambda, TimeDistributed, Bidirectional, LeakyReLU)
+                          Input, Lambda, TimeDistributed, Bidirectional, LeakyReLU, ReLU)
 from keras.models import Model
+from parameters import params_dir
 
-unit_size = 512
+unit_size = params_dir['units']
 
 def model(vocab_size, input_size, max_len, reg):
 
     # Image embedding
     #inputs1 = Input(shape=(2048,)) # was (2048,)
     inputs1 = Input(shape=(input_size,))
-    X_img = Dropout(0.1)(inputs1) # was 0.5
+    #X_img = Dropout(0.1)(inputs1) # was 0.5
     X_img = Dense(unit_size, use_bias = True, # was False
                         kernel_regularizer=regularizers.l2(reg),
                         kernel_initializer=RandomUniform(-0.08, 0.08),
                         name = 'dense_img')(inputs1)#(X_img)
-    X_img = Dropout(0.2)(X_img) # not here originally 
+    #X_img = Dropout(0.3)(X_img) # not here originally 
     #X_img = LeakyReLU(alpha=0.1)(X_img)
+    #X_img = ReLU()(X_img)
     # X_img = BatchNormalization(name='batch_normalization_img')(X_img)
     X_img = Lambda(lambda x : K.expand_dims(x, axis=1))(X_img)
 
     # Text embedding
     inputs2 = Input(shape=(max_len,))
     X_text = Embedding(vocab_size, unit_size, mask_zero = True, name = 'emb_text')(inputs2)
-    X_text = Dropout(0.2)(X_text)
+    #X_text = Dropout(0.3)(X_text)
 
     # Initial States
     a0 = Input(shape=(unit_size,))
@@ -54,7 +56,8 @@ def model(vocab_size, input_size, max_len, reg):
                     return_state = True, 
                     kernel_regularizer = regularizers.l2(reg),
                     bias_regularizer = regularizers.l2(reg),
-                    name = 'lstm') #dropout=0.5, name = 'lstm')
+                    #dropout = 0.5,
+                    name = 'lstm') 
 
     # Take image embedding as the first input to LSTM
     _, a, c = LSTMLayer(X_img, initial_state=[a0, c0])
@@ -82,6 +85,7 @@ def greedy_inference_model(vocab_size, input_size, max_len, reg):
     inputs1 = Input(shape=(input_size,)) # 2048
     X_img = EncoderDense(inputs1)
     #X_img = LeakyReLU(alpha=0.1)(X_img)
+    #X_img = ReLU()(X_img)
     # X_img = BatchNormLayer(X_img)
     X_img = Lambda(lambda x : K.expand_dims(x, axis=1))(X_img)
 
