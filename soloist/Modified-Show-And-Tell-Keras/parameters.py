@@ -1,7 +1,7 @@
 params_dir = {
-        "data_dir": "./data/anti_overfit/",
+        "data_dir": "./data/train_set_split/",
         "epochs": 1000, # 5 hours for 100 epochs @ bs=128
-        "batch_size": 64,
+        "batch_size": 192,
         "max_length": 10, #20,
 
         "input": 5000, # MSCOCO = 4096 | VC = 62756 | PCA = 5000
@@ -10,6 +10,6 @@ params_dir = {
         "embedding_dim": 512,
 
         "L2_reg": 0, #1e-4,
-        "LR": 0.0001,
+        "LR": 0.001,
         "lr_decay": 0, # 1e-4,
         }

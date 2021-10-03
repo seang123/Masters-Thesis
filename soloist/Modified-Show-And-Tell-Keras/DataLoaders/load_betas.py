@@ -9,6 +9,7 @@ import keras
 from keras.utils import to_categorical
 
 
+
 # set np seed
 np.random.seed(42)
 

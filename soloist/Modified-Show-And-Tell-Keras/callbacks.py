@@ -42,7 +42,11 @@ class BatchLoss(keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         max_batch_loss = max(self.batch_losses)
         min_batch_loss = min(self.batch_losses)
-        print(f"Max batch loss: {max_batch_loss:.4f}\nMin batch loss: {min_batch_loss:.4f}\n")
+        argmax = lambda array: max(zip(array, range(len(array))))[1]
+        argmin = lambda array: min(zip(array, range(len(array))))[1]
+        max_batch_loss_idx = argmax(self.batch_losses)
+        min_batch_loss_idx = argmin(self.batch_losses)
+        print(f"Max batch loss: {max_batch_loss:.4f} ({max_batch_loss_idx})\nMin batch loss: {min_batch_loss:.4f} ({min_batch_loss_idx})\n")
 
     def on_train_batch_end(self, batch, logs=None):
         loss = logs['loss']

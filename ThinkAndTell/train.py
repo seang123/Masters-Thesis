@@ -134,7 +134,7 @@ captions = [] # captions for each image
 nr_captions = [] # nr of captions for each image
 for i in range(0, len(img_keys)):
     key = img_keys[i]
-    
+    caps = annt_dict[str(key)]
     captions.extend(caps)
     nr_captions.append(len(caps))
 
@@ -224,7 +224,7 @@ def extend_func(a, b):
 
 # TODO: split test/validation set here. Doing it afterwards is harder since its possible that brain-data has already been seen, jsut for a different
 # caption target
-dataset_test = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32])) # pca uses int32 for img
+dataset_test = dataset_shr.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int64, tf.int32])) # pca uses int32 for img
 dataset_test = dataset_test.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
 ## Save validation dataset
@@ -232,7 +232,7 @@ if not os.path.exists(f"./data/test_dataset"):
     tf.data.experimental.save(dataset_test, f"./data/test_dataset")
     print(" > Test set saved to disk")
 
-dataset_train = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int32, tf.int32]))
+dataset_train = dataset_unq.map(lambda a,b: tf.numpy_function(extend_func, [a,b], [tf.float32, tf.int64, tf.int32]))
 dataset_train = dataset_train.flat_map(lambda a,b,c: tf.data.Dataset.from_tensor_slices((a,b,c)))
 
 dataset_test = dataset_test.shuffle(BUFFER_SIZE, reshuffle_each_iteration=True).batch(BATCH_SIZE).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
