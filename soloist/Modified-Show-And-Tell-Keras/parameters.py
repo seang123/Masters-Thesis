@@ -1,10 +1,10 @@
 params_dir = {
-        "data_dir": "./data/train_set_split/",
+        "data_dir": "./data/new_loader/",
         "epochs": 1000, # 5 hours for 100 epochs @ bs=128
-        "batch_size": 192,
+        "batch_size": 64,
         "max_length": 10, #20,
 
-        "input": 5000, # MSCOCO = 4096 | VC = 62756 | PCA = 5000
+        "input": 62756, # MSCOCO = 4096 | VC = 62756 | PCA = 5000
         "top_k": 5000,
         "units": 512,
         "embedding_dim": 512,

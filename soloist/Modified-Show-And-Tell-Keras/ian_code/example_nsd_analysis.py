@@ -8,20 +8,39 @@ from nsd_get_data import (get_betas,
                           average_over_conditions)
 
 total_time = time.time()
-subnumber = 0
+subnumber = 1
 
 n_subjects = 8
 n_jobs = 18
+
+
+
 
 # ridge regression parameters
 n_alphas = 20
 fracs = np.linspace(0.001, 0.999, n_alphas).astype(np.float32)
 
 # set up directories
-base_dir = os.path.join('/rds', 'projects', 'c')
-nsd_dir = os.path.join(base_dir, 'charesti-start', 'data', 'NSD')
+#base_dir = os.path.join('/rds', 'projects', 'c')
+base_dir = os.path.join("./base")
+#nsd_dir = os.path.join(base_dir, 'charesti-start', 'data', 'NSD')
+nsd_dir = "~/NSD2"
 proj_dir = os.path.join(base_dir, 'charesti-start', 'projects', 'NSD')
 sem_dir = os.path.join(proj_dir, 'derivatives', 'semantics')
+
+### -----------------
+
+
+
+conditions = get_conditions(nsd_dir, "subj02", 40)
+
+print(len(conditions))
+print(conditions[0].shape)
+
+
+sys.exit(0)
+# -------------------
+
 
 # where do we save the concatenated betas?
 betas_dir = op.join(proj_dir, 'betas')
@@ -39,10 +58,10 @@ n_sessions = 40
 # subjects
 subs = ['subj0{}'.format(x+1) for x in range(n_subjects)]
 sub = subs[subnumber]
-
+print("sub", sub)
 # get the condition list for the special 515
 # these will be used as testing set for the guse predictions
-conditions_515 = get_conditions_515(nsd_dir)
+conditions_515 = get_conditions_515(nsd_dir, sub, n_sessions)
 
 # extract conditions data
 conditions = get_conditions(nsd_dir, sub, n_sessions)
