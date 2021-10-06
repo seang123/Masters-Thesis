@@ -23,8 +23,8 @@ from preprocessing.image import *
 from preprocessing.text import *
 
 #from data_loader import load_data_pca, load_data_img, data_generator
-import data_loader
-import load_betas
+from DataLoaders import data_loader
+from DataLoaders import load_betas
 import my_utils as uu
 import sys, os
 from nsd_access import NSDAccess
@@ -417,8 +417,8 @@ def plot_loss(data_dir, out_path):
     # Epoch loss
     fig, axs = plt.subplots(2, 1, sharex=True) 
 
-    axs[0].plot(df.loss, label = 'train')
-    axs[0].plot(df.val_loss, label = 'val')
+    axs[0].plot(df.loss[1:], label = 'train')
+    axs[0].plot(df.val_loss[1:], label = 'val')
     axs[0].set_title('Cross-entropy Loss')
     axs[0].legend()
 
@@ -436,7 +436,7 @@ def plot_loss(data_dir, out_path):
     # Batch loss
     fig, axs = plt.subplots(2, 1, sharex=True) 
 
-    axs[0].plot(df2.loss, label = 'train')
+    axs[0].plot(df2.loss[600:], label = 'train')
     axs[0].set_title('Categorical Cross-entropy Loss')
     axs[0].legend()
 
@@ -683,6 +683,15 @@ def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
 
 if __name__ == '__main__':
 
+    out_path = params_dir['data_dir'] + '/eval_out/'
+    if not os.path.isdir(out_path):
+        os.makedirs(out_path)
+        print("> created data folder:", out_path)
+
+    plot_loss(params_dir['data_dir'], out_path)
+
+    sys.exit(0)
+
     model_dir = params_dir['data_dir'] + '/latest-model.h5'
 #    model_dir = './data/pca_short_lowLR/model-ep046-loss3.0974-val_loss3.0367.h5'
 
@@ -690,13 +699,8 @@ if __name__ == '__main__':
     BATCH_SIZE_EVAL = 5
     GEN_IMG = True
 
-    out_path = params_dir['data_dir'] + '/eval_out/'
-    if not os.path.isdir(out_path):
-        os.makedirs(out_path)
-        print("> created data folder:", out_path)
 
     my_eval(model_dir, out_path, BATCH_SIZE_EVAL, GEN_IMG)
 
-    plot_loss(params_dir['data_dir'], out_path)
 
 

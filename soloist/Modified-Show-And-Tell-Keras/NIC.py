@@ -26,14 +26,14 @@ from parameters import params_dir
 
 unit_size = params_dir['units']
 
-def model(vocab_size, input_size, max_len, reg):
+def model(vocab_size, input_size, max_len, in_reg, lstm_reg, out_reg):
 
     # Image embedding
     #inputs1 = Input(shape=(2048,)) # was (2048,)
     inputs1 = Input(shape=(input_size,))
     #X_img = Dropout(0.1)(inputs1) # was 0.5
     X_img = Dense(unit_size, use_bias = True, # was False
-                        kernel_regularizer=regularizers.l2(reg),
+                        kernel_regularizer=regularizers.l2(in_reg),
                         kernel_initializer=RandomUniform(-0.08, 0.08),
                         name = 'dense_img')(inputs1)#(X_img)
     #X_img = Dropout(0.3)(X_img) # not here originally 
@@ -54,8 +54,8 @@ def model(vocab_size, input_size, max_len, reg):
     LSTMLayer= LSTM(unit_size, 
                     return_sequences = True, 
                     return_state = True, 
-                    kernel_regularizer = regularizers.l2(reg),
-                    bias_regularizer = regularizers.l2(reg),
+                    kernel_regularizer = regularizers.l2(lstm_reg),
+                    bias_regularizer = regularizers.l2(lstm_reg),
                     #dropout = 0.5,
                     name = 'lstm') 
 
@@ -64,8 +64,8 @@ def model(vocab_size, input_size, max_len, reg):
 
     A, _, _ = LSTMLayer(X_text, initial_state=[a, c])
     output = TimeDistributed(Dense(vocab_size, activation='softmax',
-                                    kernel_regularizer = regularizers.l2(reg), 
-                                    bias_regularizer = regularizers.l2(reg), 
+                                    kernel_regularizer = regularizers.l2(out_reg), 
+                                    bias_regularizer = regularizers.l2(out_reg), 
                                     kernel_initializer = RandomUniform(-0.08, 0.08)
                             ),
                             name = 'time_distributed_softmax')(A)

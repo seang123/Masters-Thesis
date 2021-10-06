@@ -1,0 +1,38 @@
+---
+ # Name the current run
+ run: trial_run 
+
+ # Data stores
+ dataset:
+     betas_path: "/huge/seagie/data/subj_2/betas_meaned/"
+     captions_path: "/huge/seagie/data/subj_2/captions/"
+     nsd_dir: "/home/seagie/NSD2"
+ log: "./Log/"
+
+ # Training
+ epochs: 2
+ batch_size: 128
+ max_length: 10
+ optimizer: "Adam"
+ alpha: 0.001
+ decay: 0 # 1e-4
+ dropout: 0
+
+ # Input size
+ input: 
+     vc: 62756
+     pca: 5000
+     mscoco: 4096
+
+ # Model size 
+ units: 128
+ embedding_dim: 128
+ top_k: 5000
+
+ input_reg: 1.0e-4 # to parse as float and not string u need a .
+ lstm_reg: 0
+ output_reg: 0
+
+
+
+

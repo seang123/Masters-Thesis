@@ -155,7 +155,7 @@ def get_conditions(nsd_dir, sub, n_sessions):
     # loop over sessions
     for ses in range(n_sessions):
         ses_i = ses+1
-        print(f'\t\tsub: {sub} fetching condition trials in session: {ses_i}')
+        print(f'\t\tsub: {sub} fetching condition trials in session: {ses_i}', end='\r')
 
         # we only want to keep the shared_1000
         this_ses = np.asarray(
