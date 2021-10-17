@@ -22,6 +22,16 @@ class EarlyStoppingByLossVal(keras.callbacks.Callback):
 class Predict(keras.callbacks.Callback):
     pass
 
+class EpochHistory(keras.callbacks.Callback):
+    
+    def __init__(self, file_location):
+        self.f = open(f"{file_location}/training_log.csv")
+        pass
+    
+    def on_epoch_begin(self, epoch, logs=None):
+        pass
+
+
 class BatchLoss(keras.callbacks.Callback):
 
     def __init__(self, file_name, location):
