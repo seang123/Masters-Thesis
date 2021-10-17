@@ -186,4 +186,6 @@ figures/
 *.png
 
 /AttemptFour/Logs/
+/AttemptFour/tb_logs/
+/AttemptFour/Log/
 

@@ -11,8 +11,16 @@ import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 import collections 
 from ian_code import nsd_get_data as ngd 
+import yaml
+import nibabel as nb
+
 
 np.random.seed(42)
+
+
+with open("./config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+    print(f"Config file loaded.")
 
 
 data_dir = '/huge/seagie/data_meaned/'
@@ -23,6 +31,35 @@ targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/huge/seagie/data/subj_2/captions/"
 betas_path = "/huge/seagie/data/subj_2/betas_meaned/"
+
+## ====== Glasser ======
+GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
+GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
+VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
+
+glasser_lh = nb.load(GLASSER_LH).get_data()
+glasser_rh = nb.load(GLASSER_RH).get_data()
+
+glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
+
+print("glasser_lh", glasser_lh.shape)
+print("glasser_rh", glasser_rh.shape)
+
+visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
+visual_parcel_list = list(visual_parcels.values.flatten())
+
+groups = []
+glasser_indices = np.array(range(len(glasser)))
+for i in visual_parcel_list:
+    group = glasser_indices[glasser==i]
+    groups.append(group)
+print("sum of groups sizes:", sum([len(g) for g in groups]))
+print("Avg. group size:    ", np.mean([len(g) for g in groups]))
+## =====================
+
+def get_groups(out_dim):
+    return groups, [out_dim for i in range(len(groups))]
+    #return groups, [len(g)//100 for g in groups]
 
 def build_tokenizer(captions_path, top_k = 5000):
     """
@@ -127,6 +164,9 @@ def create_pairs(keys: list, captions_path: str):
                 cap = " ".join(cap)
                 pairs.append( (key, cap) )
 
+    np.random.seed(42)
+    np.random.shuffle(pairs)
+
     return pairs
 
 def temp_rename(nsd_keys: list, dst_location = "/huge/seagie/data/subj_2/betas_meaned/"):
@@ -188,8 +228,6 @@ def batch_generator(
     pairs = np.array(pairs)
     N = pairs.shape[0]
 
-    print("> batch_generator:", pairs.shape)
-
     #while True:
     for i in range(0, N, batch_size):
 
@@ -206,26 +244,107 @@ def batch_generator(
                 betas_data[i,:] = apply_mask(np.load(f), visual_mask)
 
         # Tokenize captions
-        cap_seqs = tokenizer.texts_to_sequences(cap)
+        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
 
         # Create target
         target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
         target[:,:-1] = cap_vector[:,1:]
         target = to_categorical(target,vocab_size)
+        target = target.astype(np.int32)
 
         # Init LSTM
         init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
 
 
         if training:
-           yield ([betas_data, cap_vector, init_state, init_state], target)
+           yield ((betas_data, cap_vector, init_state, init_state), target)
         else:
-           yield ([betas_data, cap_vector, init_state, init_state], target)
+           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
+
+
+def apply_lc_mask(betas:np.array, groups:list):
+    """ Apply multiple masks to the betas
+
+    A (327684,) array of betas gets split into multiple masked regions
+    using the mask list
+
+    Parameters
+    ----------
+        betas : ndarray
+            betas array (327684,)
+        groups : list
+            a list of indices corresponding to different regions
+
+    Returns
+    -------
+        list 
+            different masked beta regions
+            [(N0,), (N1,) ...., (N40,)]
+    """
+    
+    beta_regions = []
+    for i in groups:
+        region = betas[i]
+        beta_regions.append( region )
+
+    print("beta_regions:", len(beta_regions))
+    print("beta_regions:", [g.shape for g in beta_regions])
+
+    return beta_regions
+
+def lc_batch_generator(
+            pairs: list,
+            betas_path: str,
+            captions_path: str,
+            tokenizer,
+            batch_size: int = 32,
+            max_length: int = 10,
+            vocab_size: int = 5000,
+            units: int = 512,
+            training: bool = True
+        ): 
+
+    pairs = np.array(pairs)
+    N = pairs.shape[0]
+
+    while True:
+        for i in range(0, N, batch_size):
+
+            # Load batch
+            batch = pairs[i:i+batch_size,:]
+            nsd_key, cap = batch[:, 0], batch[:,1]
+
+            betas_data = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
+
+            # Load betas + apply mask
+            for i in range(0, nsd_key.shape[0]):
+                key = nsd_key[i]
+                with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
+                    betas_data[i, :] = np.load(f)
+
+            # Tokenize captions
+            cap_seqs = tokenizer.texts_to_sequences(cap) # int32
+            cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
+
+            # Create target
+            target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
+            target[:,:-1] = cap_vector[:,1:]
+            target = to_categorical(target, vocab_size)
+#        target = target.astype(np.int32)
+
+            # Init LSTM
+            init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
+
+            if training:
+                yield ((betas_data, cap_vector, init_state, init_state), target)
+            else:
+               yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
+
 
 def main():
 
-    tokenizer, _ = build_tokenizer(captions_path, params_dir['top_k'])
+    tokenizer, _ = build_tokenizer(captions_path, config['top_k'])
 
     nsd_keys, _ = get_nsd_keys(nsd_dir) # (10_000,)
     shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
@@ -233,16 +352,16 @@ def main():
     train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
     val_keys = shr_nsd_keys
 
-    ic(len(train_keys))
-    ic(len(val_keys))
 
     train_pairs = create_pairs(train_keys, captions_path)
     val_pairs = create_pairs(val_keys, captions_path)
 
-    ic(len(train_pairs))
-    ic(len(val_pairs))
 
-    batch_generator(val_pairs, betas_path, captions_path, tokenizer, params_dir['batch_size'], params_dir['max_length'], params_dir['top_k'], params_dir['units'])
+    #batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+
+    lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+
+
 
     return
 

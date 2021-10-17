@@ -25,6 +25,7 @@ from preprocessing.text import *
 #from data_loader import load_data_pca, load_data_img, data_generator
 from DataLoaders import data_loader
 from DataLoaders import load_betas
+from DataLoaders import load_avg_betas
 import my_utils as uu
 import sys, os
 from nsd_access import NSDAccess
@@ -550,32 +551,9 @@ def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
     # Data Loader
     #data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = data_loader.load_data_img(_max_length = max_len, train_test_split = 0.9)
     # _, _, data_val, val_vector, tokenizer, _, ext_val_keys = load_betas.load_data_betas_partial(load_train=False, load_val=True, shuffle_data=True, _max_length = max_len)
+    #data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = load_betas.load_data_betas(_max_length = max_len)
 
-    data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys = load_betas.load_data_betas(_max_length = max_len)
-
-    train_keys_set = list(set(ext_train_keys)) # unq keys
-    train_keys_set_split = int(len(train_keys_set) * 0.9) # split unq keys
-    train_keys_set_1 = train_keys_set[:train_keys_set_split] # 8100
-    train_keys_set_2 = train_keys_set[train_keys_set_split:] # 900
-
-    print("train_keys_set_1", len(train_keys_set_1))
-    print("train_keys_set_2", len(train_keys_set_2))
-
-
-    #train_x = np.array([np.where(train_keys == i)[0] for i in train_keys_set_1]) # (8100,)
-    #train_y = np.array([np.where(train_keys == i)[0] for i in train_keys_set_2]) # (900,)
-
-    train_x = []
-    train_y = []
-    for k, v in enumerate(ext_train_keys):
-        if v in train_keys_set_1:
-            train_x.append(k)
-        elif v in train_keys_set_2:
-            train_y.append(k)
-        else:
-            raise Exception("oops")
-
-
+    """
     train_x = np.array(train_x)
     train_y = np.array(train_y)
     print("train_x", train_x.shape)
@@ -588,40 +566,45 @@ def my_eval(model_dir, out_path, BATCH_SIZE_EVAL = 15, GEN_IMG=True):
     data_train = data_train[train_x]
     train_vector = train_vector[train_x]
     ext_train_keys = train_x
+    """
+    captions_path = "/huge/seagie/data/subj_2/captions/"
+    betas_path    = "/huge/seagie/data/subj_2/betas_meaned/"
+    nsd_dir = '/home/seagie/NSD2/'
+
+    tokenizer, _ = load_avg_betas.build_tokenizer(captions_path, params_dir['top_k'])
+    nsd_keys, _ = load_avg_betas.get_nsd_keys(nsd_dir)
+    shr_nsd_keys = load_avg_betas.get_shr_nsd_keys(nsd_dir)
+
+    print("nsd_keys", len(nsd_keys))
+    print("shr_nsd_keys", len(shr_nsd_keys))
+
+    train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
+    val_keys = shr_nsd_keys
+
+    train_pairs = load_avg_betas.create_pairs(train_keys, captions_path)
+    val_pairs = load_avg_betas.create_pairs(val_keys, captions_path)
+
+    print("train_pairs", len(train_pairs))
+    print("val_pairs", len(val_pairs))
+
+    train_generator = load_avg_betas.batch_generator(train_pairs, betas_path, captions_path, tokenizer,
+                                                     BATCH_SIZE_EVAL,
+                                                     params_dir['max_length'],
+                                                     params_dir['top_k'],
+                                                     params_dir['units'])
+    val_generator = load_avg_betas.batch_generator(val_pairs, betas_path, captions_path, tokenizer,
+                                                     BATCH_SIZE_EVAL,
+                                                     params_dir['max_length'],
+                                                     params_dir['top_k'],
+                                                     params_dir['units'],
+                                                     training=False)
 
 
-    #data_train     = data_train[:1000,:]
-    #train_vector   = train_vector[:1000,:]
-    #ext_train_keys = ext_train_keys[:1000]
 
-    print("data_train", data_train.shape)
-    print("train_vector", train_vector.shape)
-    print("ext_trian_keys", ext_train_keys.shape)
-
-    #with open( 'eval_keys.txt', 'w') as f:
-    #    for i in range(0, 1000):
-    #            f.write(f"{ext_train_keys[i]}\n")
-
-    #sentences = tokenizer.sequences_to_texts( train_vector )
-    #print("sentences", len(sentences))
-    #ts = []
-    #for k, v in enumerate(sentences):
-    #    ts.append(v)
-    
-    #for i in range(10):
-    #    print(ts[i])
-
-    #c = 0
-    #with open( 'eval_captions.txt', 'w' ) as f:
-    #    for item in ts:
-    #        c += 1
-    #        f.write( "%s\n" % item )
-    #print(c)
-    #sys.exit(0)
 
     # Data Batch Generator
 #    val_generator = data_loader.data_generator(data_train, train_vector, ext_train_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
-    val_generator = data_loader.data_generator(data_val, val_vector, ext_val_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
+    #val_generator = data_loader.data_generator(data_val, val_vector, ext_val_keys, _unit_size = units, _vocab_size = vocab_size, _batch_size = BATCH_SIZE_EVAL, training=False)
 
     ## Model
     NIC_inference = greedy_inference_model(vocab_size, input_size, max_len, params_dir['L2_reg'] )
@@ -690,14 +673,12 @@ if __name__ == '__main__':
 
     plot_loss(params_dir['data_dir'], out_path)
 
-    sys.exit(0)
-
     model_dir = params_dir['data_dir'] + '/latest-model.h5'
 #    model_dir = './data/pca_short_lowLR/model-ep046-loss3.0974-val_loss3.0367.h5'
 
     # how many images to evaluate
     BATCH_SIZE_EVAL = 5
-    GEN_IMG = True
+    GEN_IMG = False
 
 
     my_eval(model_dir, out_path, BATCH_SIZE_EVAL, GEN_IMG)

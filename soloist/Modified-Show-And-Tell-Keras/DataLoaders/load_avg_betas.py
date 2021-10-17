@@ -130,6 +130,9 @@ def create_pairs(keys: list, captions_path: str):
                 cap = " ".join(cap)
                 pairs.append( (key, cap) )
 
+    np.random.seed(42)
+    np.random.shuffle(pairs)
+
     return pairs
 
 def temp_rename(nsd_keys: list, dst_location = "/huge/seagie/data/subj_2/betas_meaned/"):

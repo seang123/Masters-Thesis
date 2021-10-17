@@ -17,7 +17,7 @@ import sys
 class NIC(tf.keras.Model):
     """ Class holding the neural network model """
 
-    def __init__(self, input_size, units, embedding_dim, vocab_size, max_length, dropout_input, dropout, input_reg, lstm_reg, output_reg):
+    def __init__(self, input_size, units, embedding_dim, vocab_size, max_length, dropout_rate, input_reg, lstm_reg, output_reg):
         """ Initialisation method. Builds the keras.Model
 
         Parameters
@@ -51,8 +51,7 @@ class NIC(tf.keras.Model):
         self.l2_in = L2(input_reg)
         self.l2_lstm = L2(lstm_reg)
         self.l2_out = L2(lstm_reg)
-        self.dropout = Dropout(dropout)
-        self.dropout_input = Dropout(dropout_input)
+        self.dropout = Dropout(dropout_rate)
 
         # Batch Norm
         #self.batch_norm = BatchNormalization(name='batch_norm')
@@ -61,6 +60,12 @@ class NIC(tf.keras.Model):
                 kernel_initializer=RandomUniform(-0.08, 0.08),
                 kernel_regularizer=self.l2_in,
                 name = 'dense_img'
+        )
+
+        self.dense_2 = Dense(embedding_dim, use_bias=True,
+                kernel_initializer=RandomUniform(-0.08, 0.08),
+                kernel_regularizer=self.l2_in,
+                name = 'dense_2'
         )
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
@@ -113,11 +118,11 @@ class NIC(tf.keras.Model):
                 a (batch_size, max_len, vocab_size) array holding predictions
         """
 
-        # Dropout some input
-        img_input = self.dropout_input(img_input)
-
         # Betas Encoding 
         features = self.dense_in(img_input) 
+        if training:
+            features = self.dropout(features)
+        features = self.dense_2(features)
         if training:
             features = self.dropout(features)
         features = self.expand(features)

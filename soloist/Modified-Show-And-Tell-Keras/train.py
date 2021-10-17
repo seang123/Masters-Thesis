@@ -32,7 +32,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import json
 
-#from data_loader import load_data_pca, data_generator, load_data_img
+
 from DataLoaders import data_loader
 from DataLoaders import load_betas
 from parameters import params_dir

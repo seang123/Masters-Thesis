@@ -1,6 +1,10 @@
 ---
  # Name the current run
- run: trial_run 
+ run: loc_con_attention
+
+ info: | 
+     Locally connected attention 
+     just used for testing the checkpoint and loading into eval for non-greedy eval testing
 
  # Data stores
  dataset:
@@ -10,28 +14,32 @@
  log: "./Log/"
 
  # Training
- epochs: 2
+ epochs: 5
  batch_size: 128
- max_length: 10
- optimizer: "Adam"
+ max_length: 11
+ optimizer: Adam
  alpha: 0.001
- decay: 0 # 1e-4
- dropout: 0
+ decay: 0 #1.0e-4
+ dropout_input: 0 # 0.25
+ dropout_features: 0 # 0.05
+ dropout_text: 0 # 0.35
+
+ input_reg: 0 # 9.1        # scientific notation requires decimal notation - x.0e
+ lstm_reg: 0 # 0.19
+ output_reg: 0 #0.0005
 
  # Input size
  input: 
+     full: 327684
      vc: 62756
      pca: 5000
      mscoco: 4096
 
  # Model size 
- units: 128
- embedding_dim: 128
+ units: 512
+ embedding_dim: 64
  top_k: 5000
 
- input_reg: 1.0e-4 # to parse as float and not string u need a .
- lstm_reg: 0
- output_reg: 0
 
 
 
