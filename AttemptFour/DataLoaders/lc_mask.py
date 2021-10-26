@@ -46,12 +46,13 @@ print("ngroups: ", ngroups)
 print("smallest:", smallest)
 print("largest: ", largest)
 
+fake_data = np.random.uniform(0, 1, (glasser.shape))
 
 visual_glasser = np.zeros(glasser.shape)
 visual_glasser.fill(np.nan)
 colour = 10
 for g in groups:
-    visual_glasser[g] = colour
+    visual_glasser[g] = fake_data[g] #colour
     colour += 10
 
 vert = cortex.Vertex(visual_glasser, 'fsaverage')

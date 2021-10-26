@@ -14,7 +14,7 @@ run_name = config['run']
 out_path = os.path.join(config['log'], run_name, 'eval_out')
 
 
-custom_name = 'loc_con_variable'
+custom_name = 'concat_clipnorm'
 out_path = os.path.join(config['log'], custom_name, 'eval_out')
 
 

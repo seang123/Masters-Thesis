@@ -13,6 +13,7 @@ from tensorflow.keras.layers import (Dense,
 from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import RandomUniform, GlorotNormal
 from tensorflow.keras.regularizers import L2
+from tensorflow_addons import seq2seq
 from . import layers
 from . import attention
 from . import localDense
@@ -47,6 +48,21 @@ class NIC(tf.keras.Model):
 
         self.relu = LeakyReLU(0.2)
 
+
+        """
+        # For locally connected and concated output
+        self.dense_in = localDense.LocallyDense(
+                in_groups,
+                out_groups,
+                embed_dim = embedding_dim,
+                activation=self.relu,
+                kernel_initializer='he_normal',
+                kernel_regularizer=self.l2_in,
+                #kernel_constraint=tf.keras.constraints.MaxNorm(max_value=1), 
+                #bias_constraint=tf.keras.constraints.MaxNorm(max_value=1),
+        )
+        """
+
         self.dense_in = layers.LocallyDense(
                 in_groups, 
                 out_groups, 
@@ -56,29 +72,16 @@ class NIC(tf.keras.Model):
                 #name = 'lc_dense_in'
         )
 
-        """ # For locally connected and concated output
-        self.dense_in = localDense.LocallyDense(
-                in_groups,
-                out_groups,
-                embed_dim = embedding_dim,
-                activation=self.relu,
-                kernel_initializer='he_normal',
-                kernel_regularizer=self.l2_in,
-                name='lc_dense_in'
-        )
-        """
-
         self.attention = attention.SoftAttention(
                 use_bias = True,
                 kernel_initializer=GlorotNormal(),
                 name = 'attention'
         )
 
-
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
-        self.input2 = Input(shape=(max_length,))
+        #self.input2 = Input(shape=(max_length,))
         self.embedding = Embedding(vocab_size, 
                 embedding_dim, 
                 mask_zero=True,
@@ -156,7 +159,7 @@ class NIC(tf.keras.Model):
         return output
 
 
-    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units):
+    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator
@@ -190,18 +193,18 @@ class NIC(tf.keras.Model):
         text = self.embedding(start_seq)
         text = self.expand(text)
 
+        # Call LSTM on features
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
-        #final = tf.squeeze(whole, axis=1)
 
         outputs = []
-        for i in range(max_len):
-            whole, final, c = self.lstm(text, initial_state=[final,c])
-            #final = tf.squeeze(whole, axis=1)
+        for i in range(max_len-1):
+            whole, final, c = self.lstm(text, initial_state=[final, c])
 
             output = self.dense_out(whole)
             outputs.append( output )
             text = tf.math.argmax(output, axis=2)
             text = self.embedding(text)
+
 
         return np.array(outputs)
 
@@ -220,29 +223,50 @@ class NIC(tf.keras.Model):
 
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
 
-        # Get the first top_p words
-        outputs = defaultdict()
-        whole, final, c = self.lstm(text, initial_state=[final,c])
         output = self.dense_out(whole)
-        top_p, _ = select_nucleus(output, p = 0.5)
+        print("whole ", whole.shape)
+        print("output", output.shape)
+        top_p, probs = self.select_nucleus(output, p=0.5)
 
-        outputs['1'] = top_p
+        if not isinstance(top_p, list):
+            top_p = [top_p]
 
-        frontier = [] # hold the current top_p words to explore for the next step
-        for i in top_p:
-            frontier.append((self.embedding(i), final, c))
+        outputs = []
+        for k, p in top_p:
+            outputs.append( _nongreedy_predict(p, a0, c0, max_len, [], 1) )
 
-        for i in range(max_len-1):
-            new_frontier = []
-            for word in frontier:
-                text, final, c = word
-                whole, final, c = self.lstm(text, initial_state=[final,c])
+        
 
-                output = self.dense_out(whole) # probability across words
+    def _nongreedy_predict(self, word_idx, a, c, max_len, sentence = [], i = 0):
+        """ Takes a word idx, and returns the next word idx 
+        Parameters
+        ----------
+            word_idx : int
+                a word encoded as an integer
+            a 
+                hidden state
+            c
+                carry state
+        Returns
+        -------
+            the next word idx
+        """
 
-                top_p, _ = select_nucleus(output, p=0.5)
-                for j in top_p:
-                    new_frontier.append( (self.embedding(j), final, c) )
+        if i == max_len:
+            return [word_idx]
+
+        text = self.embedding(word_idx)
+        whole, final, c = self.lstm(text, initial_state=[a,c])
+        output = self.dense_out(whole)
+            
+        top_k, probs = select_nucleus(output, p=0.5)
+
+        for k, v in enumerate(top_k):
+            s = sentence + [word_idx, v]
+            i2 = i + 1
+            return [word_idx] + _nongreedy_predict(v, final, c, max_len, sentence=s, i=i2)
+        
+
 
 
     @staticmethod
@@ -257,15 +281,19 @@ class NIC(tf.keras.Model):
 
         Similary to how top-k selects the top k elements, top-p
         selecets the top k elements such that their sum is >= p
+
+        Note: shouldn't take batched data. ie. only single batch 
         """
+        probability_vector = np.squeeze(probability_vector) 
 
         idxs = np.argsort(probability_vector)
-        vals, cumsum = [], 0.0
-        for k, v in enumerate(idxs):
-            vals.append(k)
-            cumsum += v
+        vals, probs, cumsum = [], [], 0.0
+        for _, v in enumerate(idxs):
+            vals.append(v)
+            probs.append(probability_vector[v])
+            cumsum += probability_vector[v]
             if cumsum > p:
-                return vals, cumsum
+                return vals, probs
 
 
 
@@ -306,6 +334,7 @@ class NIC(tf.keras.Model):
 
             # Get the loss
             for i in range(0, target.shape[1]):
+            #for i in range(0, tf.shape(target)[0]):
                 cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
                 accuracy += self.accuracy_calculation(target[:,i], prediction[:,i])
 

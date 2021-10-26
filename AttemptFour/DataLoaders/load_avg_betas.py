@@ -58,8 +58,8 @@ print("Avg. group size:    ", np.mean([len(g) for g in groups]))
 ## =====================
 
 def get_groups(out_dim):
-    return groups, [out_dim for i in range(len(groups))]
-    #return groups, [len(g)//100 for g in groups]
+    #return groups, [out_dim for i in range(len(groups))]
+    return groups, [len(g)//100 for g in groups]
 
 def build_tokenizer(captions_path, top_k = 5000):
     """
@@ -137,7 +137,7 @@ def load_betas(data_dir: str, file_name: str):
 
     return betas # (327684, 10000)
 
-def create_pairs(keys: list, captions_path: str):
+def create_pairs(keys: list, captions_path: str, seed: int = 42):
     """ NSD_key - caption pairs
 
     Parameters
@@ -164,7 +164,7 @@ def create_pairs(keys: list, captions_path: str):
                 cap = " ".join(cap)
                 pairs.append( (key, cap) )
 
-    np.random.seed(42)
+    np.random.seed(seed)
     np.random.shuffle(pairs)
 
     return pairs
@@ -331,7 +331,6 @@ def lc_batch_generator(
             target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
             target[:,:-1] = cap_vector[:,1:]
             target = to_categorical(target, vocab_size)
-#        target = target.astype(np.int32)
 
             # Init LSTM
             init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)

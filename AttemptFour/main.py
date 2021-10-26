@@ -11,8 +11,11 @@ from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from collections import defaultdict
 from datetime import datetime
+from .. import nv_monitor
 
-gpu_to_use = 2
+raise
+
+gpu_to_use = 0
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -53,6 +56,7 @@ train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path']
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
 
+
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_apirs  : {len(val_pairs)}")
 
@@ -73,7 +77,7 @@ print("data loaded successfully")
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=0.2)
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -140,7 +144,7 @@ logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
         #histogram_freq=1,
-        #write_graph=True,
+        write_graph=True,
         #write_images=True,
         #embeddings_freq=1,
         )
@@ -156,8 +160,9 @@ _callbacks = [
         batch_loss_writer, 
         epoch_loss_writer, 
         tensorboard_callback, 
-        reduce_lr,
-        checkpoint_latest
+        #reduce_lr,
+        checkpoint_latest,
+        checkpoint_best,
         #predict_callback,
 #        early_stop
 ]
@@ -170,9 +175,38 @@ start_epoch = 0
 
 def dotfit():
 
+    # tf.data Generator
+    def create_train_gen():
+        return loader.lc_batch_generator(train_pairs,
+            config['dataset']['betas_path'],
+            config['dataset']['captions_path'],
+            tokenizer,
+            config['batch_size'],
+            config['max_length'],
+            vocab_size,
+            config['units'],
+            training=True
+            )
+    def create_val_gen():
+        return loader.lc_batch_generator(val_pairs,
+            config['dataset']['betas_path'],
+            config['dataset']['captions_path'],
+            tokenizer,
+            config['batch_size'],
+            config['max_length'],
+            vocab_size,
+            config['units'],
+            training=False
+            )
+    #train_generator = tf.data.Dataset.from_generator(create_train_gen,
+    #        output_types=((np.float32, np.int32, np.float32, np.float32), np.int32))
+    #val_generator = tf.data.Dataset.from_generator(create_val_gen,
+    #        output_types=((np.float32, np.int32, np.float32, np.float32), np.int32, np.int32))
 
+    # Raw generator
     train_generator = create_generator(train_pairs, True)
     val_generator = create_generator(val_pairs, False)
+
     model.fit(
             train_generator,
             epochs = config['epochs'],
@@ -180,7 +214,7 @@ def dotfit():
             batch_size = config['batch_size'],
             callbacks = _callbacks,
             validation_data = val_generator,
-            validation_steps = len(val_pairs)//config['batch_size'],
+            validation_steps = 1, # len(val_pairs)//config['batch_size'],
             initial_epoch = 0
     )
     return

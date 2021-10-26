@@ -1,10 +1,9 @@
 ---
  # Name the current run
- run: loc_con_attention
+ run: soft_atten_clipnorm_l2_dropout
 
  info: | 
-     Locally connected attention 
-     just used for testing the checkpoint and loading into eval for non-greedy eval testing
+     Model based on ray-tune with best performing L2, dropout values, plus clipnorm
 
  # Data stores
  dataset:
@@ -14,19 +13,19 @@
  log: "./Log/"
 
  # Training
- epochs: 5
+ epochs: 100
  batch_size: 128
  max_length: 11
  optimizer: Adam
  alpha: 0.001
  decay: 0 #1.0e-4
- dropout_input: 0 # 0.25
- dropout_features: 0 # 0.05
- dropout_text: 0 # 0.35
+ dropout_input: 0.17 # 0.25
+ dropout_features: 0.18 # 0.05
+ dropout_text: 0.01 # 0.35
 
- input_reg: 0 # 9.1        # scientific notation requires decimal notation - x.0e
- lstm_reg: 0 # 0.19
- output_reg: 0 #0.0005
+ input_reg: 0.002 #8.5        # scientific notation requires decimal notation - x.0e
+ lstm_reg: 0.0003 #0.005
+ output_reg: 1.3e-5 #0.005 # 0.000005
 
  # Input size
  input: 
@@ -37,7 +36,7 @@
 
  # Model size 
  units: 512
- embedding_dim: 64
+ embedding_dim: 128
  top_k: 5000
 
 

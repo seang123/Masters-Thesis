@@ -1,0 +1,2 @@
+
+Saving the pairs created at the start of training and those created at the start of evaluation and comparing them through 'diff train_pairs.txt eval_train_pairs.txt' shows no differences.

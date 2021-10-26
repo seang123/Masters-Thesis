@@ -20,7 +20,7 @@ from collections import defaultdict
     Creates an instance of the NIC model and trials several hp combinations
 """
 
-gpu_to_use = 0
+gpu_to_use = 1
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
@@ -81,9 +81,17 @@ print("data loaded successfully")
 def train_NIC(tune_config):
     """ Builds and and trains model """
 
+    physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    for i in range(0, len(physical_devices)):
+        tf.config.experimental.set_memory_growth(physical_devices[i], True)
+    tf.config.set_visible_devices(physical_devices[0], 'GPU')
+
     batch_size = tune_config['batch_size']
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=tune_config['lr'], beta_1=0.9, beta_2=0.98, epsilon=10.0e-9)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=tune_config['lr'], beta_1=0.9, beta_2=0.98, epsilon=10.0e-9,
+            #clipvalue=tune_config['clipvalue'], 
+            clipnorm=tune_config['clipnorm'],
+    )
     loss_object = tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
             reduction='none'
@@ -142,7 +150,7 @@ def tune_NIC(num_training_iterations):
 
     analysis = tune.run(
         train_NIC,
-        name="NIC_soft_attention",
+        name="NIC_concat_lr",
         local_dir="./tb_logs/ray_results",
         scheduler=sched,
         metric="mean_loss",
@@ -153,20 +161,22 @@ def tune_NIC(num_training_iterations):
         },
         num_samples=50,
         resources_per_trial={
-            "cpu": 6,
-            "gpu": 1
+            "cpu": 3,
+            "gpu": 0.20,
         },
         config={
             "batch_size": 128,
-            "epochs":15,
-            "lr": 0.001,
-            "embedding_dim": tune.choice([64, 128, 256]),
-            "units": tune.choice([512]),
-            "l2_in": tune.uniform(1.0e-3, 10.0),
-            "l2_lstm": tune.uniform(1.0e-5, 1.0),
-            "l2_out": tune.uniform(1.0e-5, 0.1),
-            "dropout_features": tune.uniform(0, 0.5),
-            "dropout_input": tune.uniform(0, 0.3),
+            "epochs": 20,
+            "lr": tune.choice([0.001, 0.0001, 0.00001]),
+            "clipnorm": 0.2, #tune.loguniform(0.001, 1),
+            "clipvalue": 0, #tune.loguniform(0.1, 100),
+            "embedding_dim": 64, #tune.choice([64, 128, 256]),
+            "units": 512, #tune.choice([512]),
+            "l2_in": 0.002, #tune.loguniform(0.00001, 1000),
+            "l2_lstm": 0.0003, #tune.loguniform(0.00001, 100),
+            "l2_out": 1.3e-5, #tune.loguniform(0.00001, 100), 
+            "dropout_features": tune.uniform(0, 0.8),
+            "dropout_input": tune.uniform(0, 0.5),
             "dropout_text": tune.uniform(0, 0.5),
         }
     )
@@ -194,3 +204,5 @@ if __name__ == '__main__':
         ray.init(f"ray://{args.server_address}")
 
     tune_NIC(num_training_iterations=5 if args.smoke_test else 300)
+
+
