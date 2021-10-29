@@ -7,15 +7,13 @@ from tensorflow.keras.utils import Progbar
 import numpy as np
 from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
+from DataLoaders import data_generator as generator
 from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from collections import defaultdict
 from datetime import datetime
-from .. import nv_monitor
 
-raise
-
-gpu_to_use = 0
+gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -55,7 +53,10 @@ val_keys = shr_nsd_keys
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
+print("pairs created")
 
+g = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, seed=42, shuffle=True, training=True)
+#x = g.__getitem__(0)
 
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_apirs  : {len(val_pairs)}")
@@ -143,10 +144,10 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patienc
 logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
-        #histogram_freq=1,
+        histogram_freq=1,
         write_graph=True,
-        #write_images=True,
-        #embeddings_freq=1,
+        write_images=True,
+        embeddings_freq=1,
         )
 file_writer = tf.summary.create_file_writer(logdir)
 
@@ -214,7 +215,7 @@ def dotfit():
             batch_size = config['batch_size'],
             callbacks = _callbacks,
             validation_data = val_generator,
-            validation_steps = 1, # len(val_pairs)//config['batch_size'],
+            validation_steps = len(val_pairs)//config['batch_size'],
             initial_epoch = 0
     )
     return
@@ -226,6 +227,8 @@ def custom_train_loop():
     print(f"------\nRunning custom training loop")
     print(f"Running for {config['epochs'] - start_epoch} epochs\n------")
 
+    shuffle_seed = 42
+
     # Train for N epochs
     callbacks.on_train_begin(logs=logs)
     for epoch in range(start_epoch, config['epochs']):
@@ -233,6 +236,9 @@ def custom_train_loop():
         epoch_start_time = time.time()
         callbacks.on_epoch_begin(epoch, logs=logs)
         
+        # Reshuffle train/val pairs
+        train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = shuffle_seed)
+        val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'], seed=shuffle_seed)
         # Instantiate new generator
         train_generator = create_generator(train_pairs, True)
         val_generator = create_generator(val_pairs, False)
@@ -254,7 +260,6 @@ def custom_train_loop():
 
             for key, v in losses.items():
                 batch_train_loss[key].append(v)
-
 
             values = list(losses.items())
             pb.add(1, values=values)
@@ -280,6 +285,7 @@ def custom_train_loop():
         # On-Epoch-End
         callbacks.on_epoch_end(epoch, logs=logs)
         model.save_weights(f"{config['log']}/{config['run']}/model/checkpoints/checkpoint_latest")
+        shuffle_seed += 1
 
     # On-Train-End
     callbacks.on_train_end(logs=logs)
@@ -288,8 +294,8 @@ def custom_train_loop():
 
 if __name__ == '__main__':
     try:
-        #custom_train_loop()
-        dotfit()
+        custom_train_loop()
+        #dotfit()
     except KeyboardInterrupt as e:
         print("--Keyboard Interrupt--")
     finally:

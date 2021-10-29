@@ -49,7 +49,6 @@ class NIC(tf.keras.Model):
         self.relu = LeakyReLU(0.2)
 
 
-        """
         # For locally connected and concated output
         self.dense_in = localDense.LocallyDense(
                 in_groups,
@@ -61,8 +60,9 @@ class NIC(tf.keras.Model):
                 #kernel_constraint=tf.keras.constraints.MaxNorm(max_value=1), 
                 #bias_constraint=tf.keras.constraints.MaxNorm(max_value=1),
         )
-        """
 
+        # When using attention
+        """
         self.dense_in = layers.LocallyDense(
                 in_groups, 
                 out_groups, 
@@ -72,11 +72,12 @@ class NIC(tf.keras.Model):
                 #name = 'lc_dense_in'
         )
 
-        self.attention = attention.SoftAttention(
+        self.attention = attention.Attention(
                 use_bias = True,
                 kernel_initializer=GlorotNormal(),
                 name = 'attention'
         )
+        """
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
@@ -108,6 +109,50 @@ class NIC(tf.keras.Model):
                 name = 'time_distributed_softmax'
         )
 
+    def attend(self, hidden_state, features):
+        return
+
+    def call_attention(self, data, training=False):
+        img_input, text_input, a0, c0 = data
+
+        if training:
+            img_input = self.dropout_input(img_input)
+
+        # Features from regions
+        features = self.dense_in(img_input, training) 
+        if training:
+            features = self.dropout(features)
+
+        # Embed the caption vector
+        text = self.embedding(text_input) # (bs, max_len, embed_dim)
+        if training:
+            text = self.dropout_text(text)
+
+        # init state
+        a = tf.convert_to_tensor(a0) # (bs, embed_dim)
+        c = tf.convert_to_tensor(c0)
+
+        output = []
+        # Pass through LSTM
+        for i in range(text.shape[1]):
+            # compute attention context
+            context = self.attention(a, features, training)
+            context = self.expand(context) # (bs, 1, embed_dim)
+
+            # combine context with word
+            sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 
+
+            _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+            output.append(a)
+
+        output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
+
+        # Convert to vocab
+        output = self.dense_out(output) # (bs, max_len, vocab_size)
+
+        return output
+
+
     def call(self, data, training=False):
         """ Forward Pass
         
@@ -130,31 +175,28 @@ class NIC(tf.keras.Model):
 
         img_input, text_input, a0, c0 = data
 
-        if training:
-            img_input = self.dropout_input(img_input)
+        img_input = self.dropout_input(img_input, training=training)
 
         # Betas Encoding 
-        features = self.dense_in(img_input, training) 
-        if training:
-            features = self.dropout(features)
+        features = self.dense_in(img_input, training=training) 
+        features = self.dropout(features, training=training)
         # Attend to embeddings
-        features = self.attention(features, training)
+        #features = self.attention(features, training)
         features = self.expand(features)
 
         # Embed the caption vector
         text = self.embedding(text_input)
-        if training:
-            text = self.dropout_text(text)
+        text = self.dropout_text(text, training=training)
 
         a0 = tf.convert_to_tensor(a0)
         c0 = tf.convert_to_tensor(c0)
 
         # Pass through LSTM
-        _, a, c = self.lstm(features, initial_state=[a0,c0])
-        A, _, _ = self.lstm(text, initial_state=[a,c])
+        _, a, c = self.lstm(features, initial_state=[a0,c0], training=training)
+        A, _, _ = self.lstm(text, initial_state=[a,c], training=training)
 
         # Convert to vocab
-        output = self.dense_out(A)
+        output = self.dense_out(A, training=training)
 
         return output
 
@@ -187,7 +229,6 @@ class NIC(tf.keras.Model):
         """
 
         features = self.dense_in(img_input)
-        features = self.attention(features)
         features = self.expand(features)
 
         text = self.embedding(start_seq)
@@ -197,12 +238,14 @@ class NIC(tf.keras.Model):
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
 
         outputs = []
+        print("---")
         for i in range(max_len-1):
             whole, final, c = self.lstm(text, initial_state=[final, c])
 
             output = self.dense_out(whole)
-            outputs.append( output )
+            #outputs.append( output )
             text = tf.math.argmax(output, axis=2)
+            outputs.append(text)
             text = self.embedding(text)
 
 
@@ -235,36 +278,6 @@ class NIC(tf.keras.Model):
         for k, p in top_p:
             outputs.append( _nongreedy_predict(p, a0, c0, max_len, [], 1) )
 
-        
-
-    def _nongreedy_predict(self, word_idx, a, c, max_len, sentence = [], i = 0):
-        """ Takes a word idx, and returns the next word idx 
-        Parameters
-        ----------
-            word_idx : int
-                a word encoded as an integer
-            a 
-                hidden state
-            c
-                carry state
-        Returns
-        -------
-            the next word idx
-        """
-
-        if i == max_len:
-            return [word_idx]
-
-        text = self.embedding(word_idx)
-        whole, final, c = self.lstm(text, initial_state=[a,c])
-        output = self.dense_out(whole)
-            
-        top_k, probs = select_nucleus(output, p=0.5)
-
-        for k, v in enumerate(top_k):
-            s = sentence + [word_idx, v]
-            i2 = i + 1
-            return [word_idx] + _nongreedy_predict(v, final, c, max_len, sentence=s, i=i2)
         
 
 
@@ -334,7 +347,6 @@ class NIC(tf.keras.Model):
 
             # Get the loss
             for i in range(0, target.shape[1]):
-            #for i in range(0, tf.shape(target)[0]):
                 cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
                 accuracy += self.accuracy_calculation(target[:,i], prediction[:,i])
 
@@ -351,6 +363,9 @@ class NIC(tf.keras.Model):
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
+
+    #   summed_squares = [tf.math.reduce_sum(tf.math.square(g)) for g in gradients]
+    #   norm = tf.math.sqrt(sum(summed_squares))
         
         return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}
 

@@ -31,6 +31,7 @@ targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/huge/seagie/data/subj_2/captions/"
 betas_path = "/huge/seagie/data/subj_2/betas_meaned/"
+USE_ENTIRE_CORTEX = True
 
 ## ====== Glasser ======
 GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
@@ -48,11 +49,21 @@ print("glasser_rh", glasser_rh.shape)
 visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
 visual_parcel_list = list(visual_parcels.values.flatten())
 
-groups = []
-glasser_indices = np.array(range(len(glasser)))
-for i in visual_parcel_list:
-    group = glasser_indices[glasser==i]
-    groups.append(group)
+if USE_ENTIRE_CORTEX == False:
+    ## If using only visual cortex
+    groups = []
+    glasser_indices = np.array(range(len(glasser)))
+    for i in visual_parcel_list:
+        group = glasser_indices[glasser==i]
+        groups.append(group)
+else:
+    ## If using entire cortex
+    groups = []
+    glasser_indices = np.array(range(len(glasser)))
+    for i in set(glasser):
+        group = glasser_indices[glasser == i]
+        groups.append(group)
+
 print("sum of groups sizes:", sum([len(g) for g in groups]))
 print("Avg. group size:    ", np.mean([len(g) for g in groups]))
 ## =====================
@@ -168,6 +179,8 @@ def create_pairs(keys: list, captions_path: str, seed: int = 42):
     np.random.shuffle(pairs)
 
     return pairs
+
+
 
 def temp_rename(nsd_keys: list, dst_location = "/huge/seagie/data/subj_2/betas_meaned/"):
     """
@@ -308,37 +321,37 @@ def lc_batch_generator(
     pairs = np.array(pairs)
     N = pairs.shape[0]
 
-    while True:
-        for i in range(0, N, batch_size):
+#    while True:
+    for i in range(0, N, batch_size):
 
-            # Load batch
-            batch = pairs[i:i+batch_size,:]
-            nsd_key, cap = batch[:, 0], batch[:,1]
+        # Load batch
+        batch = pairs[i:i+batch_size,:]
+        nsd_key, cap = batch[:, 0], batch[:,1]
 
-            betas_data = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
+        betas_data = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
 
-            # Load betas + apply mask
-            for i in range(0, nsd_key.shape[0]):
-                key = nsd_key[i]
-                with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-                    betas_data[i, :] = np.load(f)
+        # Load betas + apply mask
+        for i in range(0, nsd_key.shape[0]):
+            key = nsd_key[i]
+            with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
+                betas_data[i, :] = np.load(f)
 
-            # Tokenize captions
-            cap_seqs = tokenizer.texts_to_sequences(cap) # int32
-            cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
+        # Tokenize captions
+        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
+        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
 
-            # Create target
-            target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
-            target[:,:-1] = cap_vector[:,1:]
-            target = to_categorical(target, vocab_size)
+        # Create target
+        target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
+        target[:,:-1] = cap_vector[:,1:]
+        target = to_categorical(target, vocab_size)
 
-            # Init LSTM
-            init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
+        # Init LSTM
+        init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
 
-            if training:
-                yield ((betas_data, cap_vector, init_state, init_state), target)
-            else:
-               yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
+        if training:
+            yield ((betas_data, cap_vector, init_state, init_state), target)
+        else:
+           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
 
 
 def main():

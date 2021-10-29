@@ -12,7 +12,7 @@ from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
 from nsd_access import NSDAccess
 
-gpu_to_use = 2
+gpu_to_use = 1
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -29,7 +29,7 @@ out_path = os.path.join(config['log'], run_name, 'eval_out')
 
 ## Parameters
 vocab_size = config['top_k'] + 1
-batch_size = 10 # config['batch_size'] # 1 # TODO: .predict() doesnt seem to work with batch_size > 1
+batch_size = 5 # config['batch_size'] # 1 # TODO: .predict() doesnt seem to work with batch_size > 1
 
 
 if not os.path.exists(out_path):
@@ -136,13 +136,14 @@ def model_eval(nr_of_batches = 1):
 
         start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
         print("start_seq:   ", start_seq.shape)
+        print(start_seq)
 
         outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) # (10, 128, 1, 5001)
 
-        outputs = np.squeeze(outputs, axis = 2) # (10, 128, 5001)
+        outputs = np.squeeze(outputs, axis = 2) # (max_len, bs, 1)
 
-        captions = np.argmax(outputs, axis = 2) # (10, 128)
-        captions = np.transpose(captions, axes=[1,0]) # (128, 10)
+        captions = np.argmax(outputs, axis = 2) # (max_len, bs)
+        captions = np.transpose(captions, axes=[1,0]) # (bs, max_len)
         captions = tokenizer.sequences_to_texts(captions)
 
         # Convert one-hot targets to captions

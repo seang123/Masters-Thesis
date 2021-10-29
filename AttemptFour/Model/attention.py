@@ -66,10 +66,41 @@ class SoftAttention(tf.keras.layers.Layer):
         return x # (bs, 1, 256)
 
 
+class Attention(tf.keras.layers.Layer):
+    """ True attention as done in Show, Attend, and Tell 
 
+    Given the hidden state of the lstm at t_i, and a set of features
+    return the input for the LSTM on the next timestep t_i+1
+    """
 
+    def __init__(self, **kwargs):
+        super(Attention, self).__init__()
 
+        self.attention = tf.keras.layers.Dense(1, **kwargs)
+        self.softmax = tf.keras.layers.Softmax(axis = -1)
 
+    def call(self, hidden, features, training=False):
+        """
+        Parameters
+        ----------
+            hidden 
+                hidden state of lstm at t_i
+            features - ndarray [bs, nr. regions, embedding_dim]
+                features 
+        """
+        hidden = tf.repeat(hidden, repeats=features.shape[1], axis=-1)
+        hidden = tf.reshape(hidden, [hidden.shape[0], features.shape[1], features.shape[2]])
+        x = tf.concat([hidden, features], axis=-1) # (bs, nr_regions, embed_dim*2)
+        y = self.attention(x) # (bs, nr_regions, 1)
+
+        # 2 options
+        # scale the features by the attention
+        # or return just one
+        y = self.softmax(y)
+        context = y * features # (bs, nr_regions, embed_dim)
+        out = tf.reduce_sum(context, axis = 1) # (bs, 1, embed_dim)
+
+        return out
 
 
 

@@ -122,7 +122,6 @@ def load_data_pca(_max_length = 20):
 def load_data_img(top_k = 5000, _max_length = 20, train_test_split = 0.9):
     """ Re-worked load_data_img method
 
-    Currently testing it. Thing it will work better.
 
     """
 
@@ -241,143 +240,6 @@ def load_data_img(top_k = 5000, _max_length = 20, train_test_split = 0.9):
 
     return data_train, train_vector, data_val, val_vector, tokenizer, ext_train_keys, ext_val_keys
 
-def load_data_betas(top_k =5000, _max_length = 20):
-    """ Load the betas data for the visual cortex map
-
-    Parameters
-    ----------
-    top_k : int
-        vocab size; nr words
-    _max_length : int
-        Pad, or shorten, all captions to this length
-
-    Returns
-    -------
-
-    """
-
-    ## Load the proper NSD keys that correspond to the betas shown
-    unq_img_keys = []
-    shr_img_keys = []
-    with open("./betas/betas_unq_vc_keys.txt", "r") as f, open("./betas/betas_shr_vc_keys.txt", "r") as g:
-        f_lines = f.readlines()
-        for line in f_lines:
-            unq_img_keys.append(int(line))
-
-        g_lines = g.readlines()
-        for line in g_lines:
-            shr_img_keys.append(int(line))
-
-    assert( len(unq_img_keys) == 27000 )
-    assert( len(shr_img_keys) == 3000  )
-
-    train_keys = unq_img_keys
-    val_keys = shr_img_keys
-
-    ## Load annotations
-    annt_dict = uu.load_json("../../modified_annotations_dictionary.json")
-
-    ## Split captions into train|test split
-    captions_train = []
-    for k,i in enumerate(train_keys):
-        caps = annt_dict[str(i)]
-        for cap in caps:
-            # (betas key, NSD key, caption)
-            idx_cap = (k, i, cap)
-            captions_train.append(idx_cap)
-
-    captions_val = []
-    for k,i in enumerate(val_keys):
-        caps = annt_dict[str(i)]
-        for cap in caps:
-            idx_cap = (k, i, cap)
-            captions_val.append(idx_cap)
-
-
-    all_captions = captions_train + captions_val
-    all_caps = [i[2] for i in all_captions]
-
-    tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token='<unk>', filters = '!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
-    tokenizer.fit_on_texts(all_caps)
-    tokenizer.word_index['<pad>'] = 0
-    tokenizer.index_word[0] = '<pad>'
-
-    
-    train_seqs = tokenizer.texts_to_sequences([i[2] for i in captions_train])
-    train_vector = tf.keras.preprocessing.sequence.pad_sequences(train_seqs, maxlen=_max_length, padding='post')
-    print("train_vector:", train_vector.shape)
-
-    val_seqs = tokenizer.texts_to_sequences([i[2] for i in captions_val])
-    val_vector = tf.keras.preprocessing.sequence.pad_sequences(val_seqs, maxlen=_max_length, padding='post')
-    print("val_vector:", val_vector.shape)
-
-
-    # TODO: load the full betas vectors
-#    betas_shr = np.load('./betas/betas_shr_vc.npy', mmap_mode = 'r').astype(np.float32) 
-#    betas_unq = np.load('./betas/betas_unq_vc.npy', mmap_mode = 'r').astype(np.float32)
-    betas_shr = np.memmap('./betas/betas_shr_vc.npy', dtype='float32', mode='r', shape = (3000, 62756))
-    betas_unq = np.memmap('./betas/betas_unq_vc.npy', dtype='float32', mode='r', shape = (27000, 62756))
-
-    assert( betas_shr.shape[0] == len(val_keys) )
-    assert( betas_unq.shape[0] == len(train_keys))
-
-    ## Create the data arrays | Replicate betas 'n' times
-    # For each (betas_idx, NSD_idx, caption) tuple take the betas_idx and save that beta vector to a list
-    # this results in duplicated beta vectors which we want since each caption appears ~5 times
-    data_train = []
-    for i in captions_train:
-        idx = i[0]
-        img = betas_unq[idx]
-        data_train.append(img)
-
-    data_val = []
-    for i in captions_val:
-        idx = i[0]
-        img = betas_shr[idx]
-        data_val.append(img)
-
-    data_train = np.array(data_train)
-    data_val = np.array(data_val)
-
-    assert( data_train.shape[0] == train_vector.shape[0] ), f"{data_train.shape[0]} == {train_vector.shape[0]}"
-    assert( data_val.shape[0] == val_vector.shape[0] ), f"{data_val.shape[0]} == {val_vector.shape[0]}"
-
-    nsd_train_keys = [i[1] for i in captions_train]
-    nsd_val_keys = [i[1] for i in captions_val]
-    
-    nsd_train_keys = np.array(nsd_train_keys)
-    nsd_val_keys = np.array(nsd_val_keys)
-
-    assert( data_train.shape[0] == len(nsd_train_keys) ) 
-    assert( data_val.shape[0] == len(nsd_val_keys) )
-
-    ## Shuffle data
-    # train data
-    """
-    shuffle_idx_train = np.arange(data_train.shape[0])
-    np.random.shuffle(shuffle_idx_train)
-    data_train = data_train[shuffle_idx_train]
-
-    train_vector = train_vector[shuffle_idx_train]
-    nsd_train_keys = nsd_train_keys[shuffle_idx_train]
-
-    # val data
-    shuffle_idx_val = np.arange(data_val.shape[0])
-    np.random.shuffle(shuffle_idx_val)
-    data_val = data_val[shuffle_idx_val]
-
-    val_vector = val_vector[shuffle_idx_val]
-    nsd_val_keys = nsd_val_keys[shuffle_idx_val]
-    """
-    
-
-    return data_train, train_vector, data_val, val_vector, tokenizer, None, None, nsd_train_keys, nsd_val_keys
-
-
-
-
-
-
 
 def data_generator(_data, _captions, _keys, _unit_size, _vocab_size, _batch_size, training=True): 
     """Generator to load batched data
@@ -410,39 +272,39 @@ def data_generator(_data, _captions, _keys, _unit_size, _vocab_size, _batch_size
 
     assert( len(_keys) == N ), f"{len(_keys)} != {N}"
 
-    #while True:
-    for i in range(0, N, _batch_size):
+    while True:
+        for i in range(0, N, _batch_size):
 
-        # The relevant captions for the batch
-        text = _captions[i:i+_batch_size]
+            # The relevant captions for the batch
+            text = _captions[i:i+_batch_size]
 
-        # Inital states needed for the lstm
-        init_state = np.zeros([text.shape[0], _unit_size], dtype=np.float32)
+            # Inital states needed for the lstm
+            init_state = np.zeros([text.shape[0], _unit_size], dtype=np.float32)
 
-        # create a target caption - this is just the input shifted left one step/word
-        target = np.zeros_like(text)
-        target[:,:-1] = text[:, 1:]
-        target = to_categorical(target, _vocab_size)
-        target = target.astype(np.int32)
+            # create a target caption - this is just the input shifted left one step/word
+            target = np.zeros_like(text)
+            target[:,:-1] = text[:, 1:]
+            target = to_categorical(target, _vocab_size)
+            target = target.astype(np.int32)
 
-        keys = _keys[i:i+_batch_size].astype(np.int32)
+            keys = _keys[i:i+_batch_size].astype(np.int32)
 
-        if training:
-            # NSD 73k keys not necessary for training
-            yield ([_data[i:i+_batch_size].astype(np.float32), text, init_state, init_state], target)
-        else:
-            # Also return the associated NSD 73k keys to allow image plotting
-            yield ([_data[i:i+_batch_size].astype(np.float32), text, init_state, init_state], target, keys)
+            if training:
+                # NSD 73k keys not necessary for training
+                yield ([_data[i:i+_batch_size].astype(np.float32), text, init_state, init_state], target)
+            else:
+                # Also return the associated NSD 73k keys to allow image plotting
+                yield ([_data[i:i+_batch_size].astype(np.float32), text, init_state, init_state], target, keys)
 
-        # Shuffle idea:
-        # shuffle the data here at the end of the for loop
-        # Once the for loop is over, one epoch has passed so we can reshuffle the data here
-        # np.random.set_state( rng_state )
-        # np.random.shuffle(_data)
-        # np.random.set_state( rng_state )
-        # np.random.shuffle( _captions )
-        # np.random.set_state( rng_state )
-        # np.random.shuffle( _keys )
+            # Shuffle idea:
+            # shuffle the data here at the end of the for loop
+            # Once the for loop is over, one epoch has passed so we can reshuffle the data here
+            # np.random.set_state( rng_state )
+            # np.random.shuffle(_data)
+            # np.random.set_state( rng_state )
+            # np.random.shuffle( _captions )
+            # np.random.set_state( rng_state )
+            # np.random.shuffle( _keys )
 
 
 if __name__ == '__main__':

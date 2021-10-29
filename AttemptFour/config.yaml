@@ -1,9 +1,9 @@
 ---
  # Name the current run
- run: soft_atten_clipnorm_l2_dropout
+ run: image_baseline
 
  info: | 
-     Model based on ray-tune with best performing L2, dropout values, plus clipnorm
+     train on images
 
  # Data stores
  dataset:
@@ -13,19 +13,20 @@
  log: "./Log/"
 
  # Training
- epochs: 100
+ epochs: 25
  batch_size: 128
- max_length: 11
+ max_length: 10
  optimizer: Adam
  alpha: 0.001
  decay: 0 #1.0e-4
- dropout_input: 0.17 # 0.25
- dropout_features: 0.18 # 0.05
- dropout_text: 0.01 # 0.35
+ dropout_input: 0 # 0.17
+ dropout_features: 0 # 0.18
+ dropout_text: 0 # 0.01
+ dropout_lstm: 0
 
- input_reg: 0.002 #8.5        # scientific notation requires decimal notation - x.0e
- lstm_reg: 0.0003 #0.005
- output_reg: 1.3e-5 #0.005 # 0.000005
+ input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
+ lstm_reg: 0 # 0.0003 
+ output_reg: 0 # 1.3e-5
 
  # Input size
  input: 
@@ -36,7 +37,7 @@
 
  # Model size 
  units: 512
- embedding_dim: 128
+ embedding_dim: 256
  top_k: 5000
 
 
