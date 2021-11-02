@@ -44,7 +44,7 @@ class LocallyDense(tf.keras.layers.Layer):
         #out = tf.reduce_sum(out, axis=1)
 
         out = tf.concat(out, axis=1)
-        out = self.dense_2(out) # (bs, embed_dim)
+        out = self.dense_2(out, training=training) # (bs, embed_dim)
 
         return out  
 

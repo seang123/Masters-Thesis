@@ -63,7 +63,7 @@ class NIC(tf.keras.Model):
 
         self.dense_in = Dense(embedding_dim, use_bias=True,
                 activation=self.relu,
-                kernel_initializer=RandomUniform(-0.08, 0.08),
+                kernel_initializer=GlorotNormal(), #RandomUniform(-0.08, 0.08),
                 kernel_regularizer=self.l2_in,
                 name = 'dense_img'
         )
@@ -185,7 +185,7 @@ class NIC(tf.keras.Model):
         outputs = []
         for i in range(max_len):
             whole, final, c = self.lstm(text, initial_state=[final,c])
-            final = tf.squeeze(whole, axis=1)
+            #final = tf.squeeze(whole, axis=1)
 
             output = self.dense_out(whole)
             outputs.append( output )

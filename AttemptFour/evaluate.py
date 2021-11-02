@@ -10,6 +10,7 @@ import tensorflow as tf
 import numpy as np
 from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
+from DataLoaders import data_generator as generator
 from nsd_access import NSDAccess
 
 gpu_to_use = 1
@@ -51,8 +52,6 @@ val_keys = shr_nsd_keys
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = 42)
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'], seed = 42)
 
-train_pairs = train_pairs[0:1000]
-
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
 
@@ -67,7 +66,21 @@ create_generator = lambda pairs, training: loader.lc_batch_generator(pairs,
             training = training,
         )
 
-val_generator = create_generator(train_pairs, training=False)
+#val_generator = create_generator(train_pairs, training=False)
+val_generator = generator.DataGenerator(train_pairs, batch_size, tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=False, seed=42, shuffle=True, training=False)
+
+x = val_generator[0]
+x2 = val_generator[1]
+
+features, _, _, _ = x[0]
+features2, _, _, _ = x2[0]
+
+fig = plt.figure()
+for i in range(features.shape[0]):
+    plt.plot(features[i, 0::10000])
+    plt.plot(features2[i, 0::10000])
+plt.savefig('./some_features.png')
+plt.close(fig)
 
 print("data loaded successfully")
 
@@ -97,6 +110,8 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
+#model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep011.h5"
+
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
 #model.load_weights(model_dir)
 print(f"Model weights loaded")
@@ -129,7 +144,8 @@ def model_eval(nr_of_batches = 1):
 
 
     for i in range(nr_of_batches):
-        sample = val_generator.__next__()
+#        sample = val_generator.__next__()
+        sample = val_generator[0]
         features, _, a0, c0 = sample[0]
         target = sample[1]
         keys = sample[2]

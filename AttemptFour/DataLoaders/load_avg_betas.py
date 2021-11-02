@@ -66,11 +66,11 @@ else:
 
 print("sum of groups sizes:", sum([len(g) for g in groups]))
 print("Avg. group size:    ", np.mean([len(g) for g in groups]))
-## =====================
 
 def get_groups(out_dim):
     #return groups, [out_dim for i in range(len(groups))]
     return groups, [len(g)//100 for g in groups]
+## =====================
 
 def build_tokenizer(captions_path, top_k = 5000):
     """

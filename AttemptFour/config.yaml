@@ -1,9 +1,11 @@
 ---
  # Name the current run
- run: image_baseline
+ run: debug_shuffle_samples
 
  info: | 
-     train on images
+     check how the model performs if we randomly shuffle the betas and the captions separately. 
+     Currently, I believe they match correctly however if we do this and the performance stays the same
+     it suggests the betas-captions doesn't actually match.
 
  # Data stores
  dataset:
@@ -12,13 +14,16 @@
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
 
+ seed: 42
+
  # Training
- epochs: 25
+ epochs: 10
  batch_size: 128
  max_length: 10
  optimizer: Adam
  alpha: 0.001
  decay: 0 #1.0e-4
+
  dropout_input: 0 # 0.17
  dropout_features: 0 # 0.18
  dropout_text: 0 # 0.01

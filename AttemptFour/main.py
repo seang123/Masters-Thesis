@@ -1,6 +1,9 @@
 import yaml
+import logging
 import time
+import pandas as pd
 import os, sys
+import csv
 import tensorflow as tf
 import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
@@ -13,7 +16,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 1
+gpu_to_use = 2
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -22,6 +25,7 @@ for i in range(0, len(physical_devices)):
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
+## Load the configuration file
 with open("./config.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded.")
@@ -38,10 +42,17 @@ else:
 with open(f"{run_path}/config.yaml", "w+") as f:
     yaml.dump(config, f)
 
+logging.basicConfig(filename=f'{run_path}/log.log', filemode='w', level=logging.DEBUG)
+
+np.random.seed(config['seed'])
+tf.random.set_seed(config['seed'])
+
 ## Parameters
 vocab_size = config['top_k'] + 1
 
-# Load data
+#
+## Load data
+#
 tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
 
 nsd_keys, _ = loader.get_nsd_keys(config['dataset']['nsd_dir'])
@@ -52,15 +63,10 @@ val_keys = shr_nsd_keys
 
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
-
-print("pairs created")
-
-g = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, seed=42, shuffle=True, training=True)
-#x = g.__getitem__(0)
-
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_apirs  : {len(val_pairs)}")
 
+# Returns a generator object 
 create_generator = lambda pairs, training: loader.lc_batch_generator(pairs, 
             config['dataset']['betas_path'],
             config['dataset']['captions_path'],
@@ -78,7 +84,7 @@ print("data loaded successfully")
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=0.2)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9)#, clipnorm=0.2)
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -86,6 +92,8 @@ elif config['optimizer'] == 'SGD':
     print(f"Using optimizer: SGD")
 else:
     print("No optimizer specified")
+
+# Loss function
 loss_object = tf.keras.losses.CategoricalCrossentropy(
         from_logits=False,
         reduction='none'
@@ -106,8 +114,9 @@ model = lc_NIC.NIC(
         config['lstm_reg'],
         config['output_reg']
         )
+
 model.compile(optimizer, loss_object, run_eagerly=True)
-#print(model.summary())
+
 
 # Setup Checkpoint handler
 checkpoint_path = f"{run_path}/model/" 
@@ -131,8 +140,9 @@ checkpoint_latest = ModelCheckpoint(checkpoint_path_latest,
         mode = 'min',
         period=1)
 
-
+#
 ## Callbacks
+#
 batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv", f"{run_path}")
 epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
 
@@ -148,13 +158,13 @@ tensorboard_callback = TensorBoard(
         write_graph=True,
         write_images=True,
         embeddings_freq=1,
+        profile_batch='200,220',
         )
 file_writer = tf.summary.create_file_writer(logdir)
 
 # Init a generator used during the predict callback
-
-val_generator_pred = create_generator(val_pairs, False)
-predict_callback = Predict.Predict(val_generator_pred, tokenizer, file_writer, config['max_length'], config['units'])
+#val_generator_pred = create_generator(val_pairs, False)
+#predict_callback = Predict.Predict(val_generator_pred, tokenizer, file_writer, config['max_length'], config['units'])
 
 
 _callbacks = [
@@ -175,6 +185,7 @@ start_epoch = 0
 
 
 def dotfit():
+    logging.info("training with .fit()")
 
     # tf.data Generator
     def create_train_gen():
@@ -205,8 +216,11 @@ def dotfit():
     #        output_types=((np.float32, np.int32, np.float32, np.float32), np.int32, np.int32))
 
     # Raw generator
-    train_generator = create_generator(train_pairs, True)
-    val_generator = create_generator(val_pairs, False)
+    #train_generator = create_generator(train_pairs, True)
+    #val_generator = create_generator(val_pairs, False)
+
+    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=True, shuffle=True, training=True)
+    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=True, shuffle=True, training=True)
 
     model.fit(
             train_generator,
@@ -216,7 +230,7 @@ def dotfit():
             callbacks = _callbacks,
             validation_data = val_generator,
             validation_steps = len(val_pairs)//config['batch_size'],
-            initial_epoch = 0
+            initial_epoch = 0,
     )
     return
 
@@ -225,9 +239,13 @@ def dotfit():
 
 def custom_train_loop():
     print(f"------\nRunning custom training loop")
-    print(f"Running for {config['epochs'] - start_epoch} epochs\n------")
+    print(f"for {config['epochs'] - start_epoch} epochs\n------")
+    logging.info("training with custom training loop")
 
-    shuffle_seed = 42
+    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, shuffle=True, training=True)
+    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, shuffle=True, training=True)
+
+    grads = []
 
     # Train for N epochs
     callbacks.on_train_begin(logs=logs)
@@ -237,17 +255,18 @@ def custom_train_loop():
         callbacks.on_epoch_begin(epoch, logs=logs)
         
         # Reshuffle train/val pairs
-        train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = shuffle_seed)
-        val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'], seed=shuffle_seed)
+        #train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = shuffle_seed)
+        #val_pairs   = loader.create_pairs(val_keys,   config['dataset']['captions_path'], seed = shuffle_seed)
         # Instantiate new generator
-        train_generator = create_generator(train_pairs, True)
-        val_generator = create_generator(val_pairs, False)
+        #train_generator = create_generator(train_pairs, True)
+        #val_generator = create_generator(val_pairs, False)
 
-        batch_train_loss = defaultdict(list)
-        batch_val_loss = defaultdict(list)
+        #batch_train_loss = defaultdict(list)
+        #batch_val_loss = defaultdict(list)
 
         # Progress bar
         pb = Progbar(len(train_pairs)/config['batch_size'])#, stateful_metrics=['loss', 'l2', 'accuracy'])
+        pb2 = Progbar(len(val_pairs)/config['batch_size'])#, stateful_metrics=['val-loss', 'val-l2', 'val-accuracy'])
 
         # Training
         for (batch_nr, data) in enumerate(train_generator):
@@ -256,26 +275,27 @@ def custom_train_loop():
             #target = tokenizer.sequences_to_texts(np.argmax(target, axis=2))
 
             # data -> ([betas, cap_vector, a0, c0], target)
-            losses = model.train_step(data)
+            #print( "tf.executing_eagerly()", tf.executing_eagerly() )
+            losses, grad = model.train_step(data)
 
-            for key, v in losses.items():
-                batch_train_loss[key].append(v)
+            grads.append(grad)
+
+            #for key, v in losses.items():
+            #    batch_train_loss[key].append(v)
 
             values = list(losses.items())
             pb.add(1, values=values)
 
             callbacks.on_train_batch_end(batch_nr, logs=losses)
 
-        # Progress bar
-        pb2 = Progbar(len(val_pairs)/config['batch_size'])#, stateful_metrics=['val-loss', 'val-l2', 'val-accuracy'])
 
         # Validation 
         for (batch_nr, data) in enumerate(val_generator):
             
             losses_val = model.test_step(data)
 
-            for key, v in losses.items():
-                batch_val_loss[key].append(v)
+            #for key, v in losses.items():
+            #    batch_val_loss[key].append(v)
 
             values = list(losses_val.items())
             pb2.add(1, values=values)
@@ -284,11 +304,14 @@ def custom_train_loop():
         
         # On-Epoch-End
         callbacks.on_epoch_end(epoch, logs=logs)
-        model.save_weights(f"{config['log']}/{config['run']}/model/checkpoints/checkpoint_latest")
-        shuffle_seed += 1
+        #model.save_weights(f"{config['log']}/{config['run']}/model/checkpoints/checkpoint_latest")
 
     # On-Train-End
     callbacks.on_train_end(logs=logs)
+
+    df = pd.DataFrame(grads)
+    #df.to_csv(f'{run_path}/df_grads.csv')
+    df.to_pickle(f'{run_path}/df_grads.csv')
 
     return
 

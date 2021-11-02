@@ -151,10 +151,10 @@ checkpoint_latest = ModelCheckpoint(checkpoint_path_latest,
 logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
-        #histogram_freq=1,
-        #write_graph=True,
-        #write_images=True,
-        #embeddings_freq=1,
+        histogram_freq=1,
+        write_graph=True,
+        write_images=True,
+        embeddings_freq=1,
         )
 
 _callbacks = [

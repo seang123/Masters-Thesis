@@ -20,6 +20,9 @@ from . import localDense
 import sys
 import numpy as np
 from collections import defaultdict
+import logging
+
+loggerA = logging.getLogger(__name__ + '.lc_model')
 
 
 class NIC(tf.keras.Model):
@@ -53,10 +56,12 @@ class NIC(tf.keras.Model):
         self.dense_in = localDense.LocallyDense(
                 in_groups,
                 out_groups,
-                embed_dim = embedding_dim,
+                embed_dim=embedding_dim,
                 activation=self.relu,
-                kernel_initializer='he_normal',
+                kernel_initializer=RandomUniform(-0.08, 0.08), #'he_normal',
+                bias_initializer='zeros',
                 kernel_regularizer=self.l2_in,
+                #activity_regularizer=self.l2_in,
                 #kernel_constraint=tf.keras.constraints.MaxNorm(max_value=1), 
                 #bias_constraint=tf.keras.constraints.MaxNorm(max_value=1),
         )
@@ -82,10 +87,11 @@ class NIC(tf.keras.Model):
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
-        #self.input2 = Input(shape=(max_length,))
         self.embedding = Embedding(vocab_size, 
                 embedding_dim, 
+                embeddings_initializer=RandomUniform(-0.08, 0.08),
                 mask_zero=True,
+                #activity_regularizer=self.l2_in,
                 name = 'emb_text',
         )
 
@@ -94,6 +100,9 @@ class NIC(tf.keras.Model):
                 return_sequences=True,
                 return_state=True,
                 kernel_regularizer=self.l2_lstm,
+                #activity_regularizer=self.l2_lstm,
+                #kernel_initializer=RandomUniform(-0.08, 0.08),
+                #recurrent_initializer=RandomUniform(-0.08, 0.08),
                 dropout=dropout,
                 name = 'lstm'
         )
@@ -103,14 +112,14 @@ class NIC(tf.keras.Model):
                 Dense(vocab_size,
                     activation='softmax',
                     kernel_regularizer=self.l2_out,
-                    #kernel_initializer=RandomUniform(-0.08, 0.08),
-                    kernel_initializer=GlorotNormal(),
+                    kernel_initializer=RandomUniform(-0.08,0.08),
+                    #kernel_initializer=GlorotNormal(),
+                    bias_initializer='zeros',
+                    #activity_regularizer=self.l2_out,
                 ),
                 name = 'time_distributed_softmax'
         )
-
-    def attend(self, hidden_state, features):
-        return
+        logging.debug("Model initialized")
 
     def call_attention(self, data, training=False):
         img_input, text_input, a0, c0 = data
@@ -238,16 +247,13 @@ class NIC(tf.keras.Model):
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
 
         outputs = []
-        print("---")
-        for i in range(max_len-1):
+        for i in range(max_len):
             whole, final, c = self.lstm(text, initial_state=[final, c])
 
             output = self.dense_out(whole)
-            #outputs.append( output )
+            outputs.append( output )
             text = tf.math.argmax(output, axis=2)
-            outputs.append(text)
             text = self.embedding(text)
-
 
         return np.array(outputs)
 
@@ -310,7 +316,7 @@ class NIC(tf.keras.Model):
 
 
 
-    @tf.function()
+    @tf.function
     def train_step(self, data):
         """ Single backprop train step 
         
@@ -332,6 +338,8 @@ class NIC(tf.keras.Model):
         cross_entropy_loss = 0
         accuracy = 0
 
+        #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
+
         with tf.GradientTape() as tape:
 
             # Call model on sample
@@ -343,7 +351,7 @@ class NIC(tf.keras.Model):
                         c0
                     ), 
                     training=True
-            ) # (64, 10, 5000) (bs, max-length, vocab_size)
+            ) # (bs, max-length, vocab_size)
 
             # Get the loss
             for i in range(0, target.shape[1]):
@@ -364,12 +372,25 @@ class NIC(tf.keras.Model):
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
-    #   summed_squares = [tf.math.reduce_sum(tf.math.square(g)) for g in gradients]
-    #   norm = tf.math.sqrt(sum(summed_squares))
-        
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}
+        #cc = 0
+        #for grad in gradients:
+        #    if cc % 2 == 0:
+        #       print(">", grad.name, "--", grad.shape)
+        #   else:
+        #        print(grad.name, "--", grad.shape)
+        #    cc += 1
+        #raise Exception("stop")
+        #grad_sum = []
+        #cc = 0
+        #for grad in gradients:
+        #    if cc % 2 == 0:
+        #        grad_sum.append(tf.reduce_sum(grad, axis=0).numpy())
+        #    cc += 1
 
-    @tf.function()
+        
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+
+    @tf.function
     def test_step(self, data):
         """ Called during validation 
 
@@ -418,6 +439,7 @@ class NIC(tf.keras.Model):
 
     def loss_function(self, real, pred):
         """ Call the compiled loss function """
+        real = tf.convert_to_tensor(real)
         loss_ = self.compiled_loss(real, pred)
         return tf.reduce_mean(loss_)
 
