@@ -1,16 +1,13 @@
 ---
  # Name the current run
- run: debug_shuffle_samples_noise
+ run: modified_pipeline
 
  info: | 
-     check how the model performs if we randomly shuffle the betas and the captions separately. 
-     Currently, I believe they match correctly however if we do this and the performance stays the same
-     it suggests the betas-captions doesn't actually match.
-     now instead of shuffling the betas, I'm just going to feed in random noise
+     testing the pipeline modifications
 
  # Data stores
  dataset:
-     betas_path: "/huge/seagie/data/subj_2/betas_meaned/"
+     betas_path: "/huge/seagie/data/subj_2/betas_averaged/"
      captions_path: "/huge/seagie/data/subj_2/captions/"
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
@@ -31,7 +28,7 @@
  dropout_lstm: 0
 
  input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
- lstm_reg: 0 # 0.0003 
+ lstm_reg: 0.01 # 0.0003 
  output_reg: 0 # 1.3e-5
 
  # Input size

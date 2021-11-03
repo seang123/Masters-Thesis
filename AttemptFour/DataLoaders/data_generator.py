@@ -5,6 +5,7 @@ from tensorflow.keras.utils import to_categorical
 from tensorflow import keras
 import re
 import logging
+import time
 
 
 loggerA = logging.getLogger(__name__ + '.data_generator')
@@ -21,10 +22,9 @@ betas_path = "/huge/seagie/data/subj_2/betas_meaned/"
 class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
 
-    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, load_to_memory=True, seed=42, shuffle=True, training=False):
+    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, load_to_memory=False, seed=42, shuffle=True, training=False):
         print("initialising DataGenerator")
         self.pairs = np.array(pairs)
-        self.unq_pair_keys = list(set([int(i[0]) for i in pairs]))
         self.batch_size = batch_size
         self.tokenizer = tokenizer
         self.units = units
@@ -34,16 +34,9 @@ class DataGenerator(keras.utils.Sequence):
         self.seed = seed
         self.shuffle = shuffle
         self.training = training
+
         np.random.seed(self.seed)
         self.on_epoch_end()
-
-        print("unq pair keys", len(self.unq_pair_keys))
-        
-
-        if self.load_to_memory:
-            self.betas_data, self.nsd_idx = self.load_betas_into_mem()
-
-            print("self.betas_data.shape", self.betas_data.shape)
 
     
     def load_betas_into_mem(self):
@@ -127,6 +120,7 @@ class DataGenerator(keras.utils.Sequence):
 
         # Init LSTM
         init_state = np.zeros([cap_vector.shape[0], self.units], dtype=np.float32)
+
 
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state), target)

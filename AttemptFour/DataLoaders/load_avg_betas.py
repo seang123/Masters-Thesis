@@ -171,27 +171,18 @@ def create_pairs(keys: list, captions_path: str):
 
     return pairs
 
+def add_tokenized_cap_to_pair(pairs: list, tokenizer, max_len: int) -> list:
 
+    new_pairs = []
+    for pair in pairs:
+        key = pair[0]
+        cap = pair[1]
+        cap_seqs = tokenizer.texts_to_sequences([cap]) # int32
+        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = len(cap.split(" ")), truncating = 'post', padding = 'post')
+        new_pairs.append( (key, cap, cap_vector[0]) )
 
-def temp_rename(nsd_keys: list, dst_location = "/huge/seagie/data/subj_2/betas_meaned/"):
-    """
-    Re-save the (300k, 10k) betas file as 10k seperate files
-    """
+    return new_pairs
 
-    betas = load_betas(data_dir, betas_file_name)
-
-    print("betas loaded")
-
-    for i in range(0, betas.shape[1]):
-
-        beta = betas[:,i]
-        key = nsd_keys[i]
-
-        file_name = f"{dst_location}betas_SUB2_KID{key}.npy"
-        with open(file_name, "wb") as f:
-            np.save(f, beta)
-
-        print(i, end='\r')
 
 def apply_mask(x: np.array, mask: np.array):
     """ Apply a mask to a set of betas
@@ -371,7 +362,9 @@ def main():
 
     lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
 
-
+    start = time.time()
+    train_pairs = add_tokenized_cap_to_pair(train_pairs, tokenizer, max_len = 10)
+    print(f"Time to tokenize captions: {(time.time() - start):.2f}")
 
     return
 

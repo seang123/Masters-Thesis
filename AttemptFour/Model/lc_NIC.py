@@ -359,11 +359,11 @@ class NIC(tf.keras.Model):
                 accuracy += self.accuracy_calculation(target[:,i], prediction[:,i])
 
             # Normalise across sentence
-            cross_entropy_loss = (cross_entropy_loss / int(target.shape[1]))
+            cross_entropy_loss = cross_entropy_loss / int(target.shape[1])
             accuracy = accuracy / int(target.shape[1])
 
-            if len(self.losses) != 0:
-                l2_loss += tf.add_n(self.losses)
+            #if len(self.losses) != 0:
+            l2_loss += tf.add_n(self.losses)
 
             # Sum losses for backprop
             total_loss = tf.add(cross_entropy_loss, l2_loss)
@@ -387,7 +387,6 @@ class NIC(tf.keras.Model):
         #        grad_sum.append(tf.reduce_sum(grad, axis=0).numpy())
         #    cc += 1
 
-        
         return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
 
     @tf.function
@@ -432,17 +431,19 @@ class NIC(tf.keras.Model):
         cross_entropy_loss /= int(target.shape[1])
         accuracy /= int(target.shape[1])
 
-        if len(self.losses) != 0:
-            l2_loss += tf.add_n(self.losses)
+        #if len(self.losses) != 0:
+        l2_loss += tf.add_n(self.losses)
 
         return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
 
+    @tf.function
     def loss_function(self, real, pred):
         """ Call the compiled loss function """
         real = tf.convert_to_tensor(real)
         loss_ = self.compiled_loss(real, pred)
         return tf.reduce_mean(loss_)
 
+    @tf.function
     def accuracy_calculation(self, real, pred):
         """ Compute Accuracy
 

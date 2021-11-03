@@ -55,23 +55,20 @@ vocab_size = config['top_k'] + 1
 #
 tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
 
-nsd_keys, _ = loader.get_nsd_keys(config['dataset']['nsd_dir'])
-shr_nsd_keys = loader.get_shr_nsd_keys(config['dataset']['nsd_dir'])
+nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
 
-train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
+print("len(nsd_keys)", len(nsd_keys))
+print("len(shr_nsd_keys)", len(shr_nsd_keys))
+
+train_keys = nsd_keys
 val_keys = shr_nsd_keys
 
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
+
 print(f"train_pairs: {len(train_pairs)}")
-print(f"val_apirs  : {len(val_pairs)}")
+print(f"val_pairs  : {len(val_pairs)}")
 
-print(train_pairs[0])
-
-print("set train_pairs", len(list(set([int(i[0]) for i in train_pairs]))))
-print("set val_pairs", len(list(set([int(i[0]) for i in val_pairs]))))
-
-raise
 
 # Returns a generator object 
 create_generator = lambda pairs, training: loader.lc_batch_generator(pairs, 
@@ -84,7 +81,6 @@ create_generator = lambda pairs, training: loader.lc_batch_generator(pairs,
             config['units'],
             training=training
         )
-
 print("data loaded successfully")
 
 
@@ -226,8 +222,8 @@ def dotfit():
     #train_generator = create_generator(train_pairs, True)
     #val_generator = create_generator(val_pairs, False)
 
-    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=True, shuffle=True, training=True)
-    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=True, shuffle=True, training=True)
+    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=False, shuffle=True, training=True)
+    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=False, shuffle=True, training=True)
 
     model.fit(
             train_generator,

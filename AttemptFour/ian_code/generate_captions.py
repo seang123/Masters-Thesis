@@ -28,6 +28,7 @@ print("unq", len(unq))
 captions = [i for i in nsda.read_image_coco_info(image_index=df['nsd_key'].values)] # [[{}]]
 for k, v in enumerate(df['nsd_key'].values):
     cap = [j['caption'] for j in captions[k]]
+    cap = cap[:5]
     with open(f'{loc}/SUB2_KID{v}.txt', "w") as f:
         for c in cap:
             f.write(f"{c}\n")
