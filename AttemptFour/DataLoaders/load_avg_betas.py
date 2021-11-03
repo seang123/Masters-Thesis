@@ -95,9 +95,11 @@ def build_tokenizer(captions_path, top_k = 5000):
         with open(entry.path, "r") as f:
             content = f.read()
             for i in content.splitlines():
-                cap = i.split("\t")[1] # [betas_file_name + #, caption]
+                cap = i.replace(".", " ")
+                cap = cap.replace(",", " ")
+                cap = cap.strip()
                 cap = cap.split(" ")
-                cap = [i.lower() for i in cap]
+                cap = [i.lower() for i in cap if i != '']
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
 
@@ -124,32 +126,22 @@ def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list,
             all nsd keys show ( sample keys repeated 3 times )
     """
 
-    conditions = ngd.get_conditions(nsd_dir, subject, n_sessions)
-    conditions = np.asarray(conditions).ravel() # (30_000,)
-    conditions_bool = [True if np.sum(conditions == x) == 3 else False for x in conditions]
-    conditions_sampled = conditions[conditions_bool]
-    sample = np.unique(conditions[conditions_bool]) # (10_000,)
-    n_images = len(sample) # 10_000
-    all_conditions = range(n_images)
-    print()
+    df = pd.read_csv('./TrainData/subj02_conditions.csv')
 
-    return sample, conditions
+    unq = df['nsd_key'].loc[df['is_shared']==0]
+    shrd = df['nsd_key'].loc[df['is_shared']==1]
+    
+    assert len(unq) == 9000, "incorrect amount of unq keys"
+    assert len(shrd) == 1000, "incorrect amount of shrd keys"
+
+    return unq.values, shrd.values
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
     """ Get the shared NSD keys """
     return ngd.get_1000(nsd_dir)
 
-def load_betas(data_dir: str, file_name: str):
-    """ Load the betas which have been zscored and averaged across trials """
-
-    with open(f"{data_dir}{file_name}", "rb") as f:
-        betas = np.load(f)
-        print("betas:", betas.shape, "loaded.")
-
-    return betas # (327684, 10000)
-
-def create_pairs(keys: list, captions_path: str, seed: int = 42):
-    """ NSD_key - caption pairs
+def create_pairs(keys: list, captions_path: str):
+    """ returns NSD_key - caption pairs
 
     Parameters
     ----------
@@ -168,15 +160,14 @@ def create_pairs(keys: list, captions_path: str, seed: int = 42):
         with open(f"{captions_path}SUB2_KID{key}.txt", "r") as f:
             content = f.read()
             for line in content.splitlines():
-                cap = line.split("\t")[1]
+                cap = line.replace(".", " ")
+                cap = cap.replace(",", " ")
+                cap = cap.strip()
                 cap = cap.split(" ")
                 cap = [i.lower() for i in cap]
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
                 pairs.append( (key, cap) )
-
-    np.random.seed(seed)
-    np.random.shuffle(pairs)
 
     return pairs
 
@@ -356,10 +347,12 @@ def lc_batch_generator(
 
 def main():
 
+    start = time.time()
     tokenizer, _ = build_tokenizer(captions_path, config['top_k'])
+    print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
 
-    nsd_keys, _ = get_nsd_keys(nsd_dir) # (10_000,)
-    shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
+    nsd_keys, shr_nsd_keys = get_nsd_keys(nsd_dir) # (10_000,)
+    #shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
 
     print("len(set(nsd_keys))", len(list(set(nsd_keys))))
     print("len(set(shr_nsd_keys))", len(list(set(shr_nsd_keys))))
@@ -367,14 +360,14 @@ def main():
     train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
     val_keys = shr_nsd_keys
 
-    print(len(train_keys))
-    print(len(val_keys))
+    print("train_keys:",len(train_keys))
+    print("val_keys:  ",len(val_keys))
 
     train_pairs = create_pairs(train_keys, captions_path)
     val_pairs = create_pairs(val_keys, captions_path)
 
-
-    #batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+    print("train_pairs:", len(train_pairs))
+    print("val_pairs:  ", len(val_pairs))
 
     lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
 
