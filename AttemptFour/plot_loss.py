@@ -14,7 +14,7 @@ run_name = config['run']
 out_path = os.path.join(config['log'], run_name, 'eval_out')
 
 
-custom_name = 'loc_con_variable'
+custom_name = 'gradient_check2'
 out_path = os.path.join(config['log'], custom_name, 'eval_out')
 
 
@@ -36,8 +36,8 @@ def plot_train_loss_with_reg(csv_file_path, out_path):
     ax[0].legend()
 
     ax[1].set_title("L2 loss")
-    ax[1].plot(df.reg_loss[2:], label = 'train')
-    ax[1].plot(df.val_reg_loss[2:], label = 'val')
+    ax[1].plot(df.reg_loss[:], label = 'train')
+    ax[1].plot(df.val_reg_loss[:], label = 'val')
     ax[1].legend()
 
     # Accuracy

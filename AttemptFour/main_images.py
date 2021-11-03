@@ -6,8 +6,9 @@ from tensorflow.keras.utils import Progbar
 import numpy as np
 from Model import NIC
 from DataLoaders import load_images as loader
-from Callbacks import BatchLoss, EpochLoss
-from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint
+from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
+from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
+from datetime import datetime
 
 gpu_to_use = 1
 
@@ -56,8 +57,8 @@ val_keys = val_keys[:10]
 """
 
 
-def create_generator(data, cap, keys):
-    return loader.data_generator(data, cap, keys, config['units'], vocab_size, config['batch_size'], training=True)
+def create_generator(data, cap, keys, training):
+    return loader.data_generator(data, cap, keys, config['units'], vocab_size, config['batch_size'], training=training)
 
 print("data loaded successfully")
 
@@ -77,7 +78,9 @@ model = NIC.NIC(
         config['embedding_dim'], 
         vocab_size,
         config['max_length'],
-        config['dropout'],
+        config['dropout_input'],
+        config['dropout_features'],
+        config['dropout_lstm'],
         config['input_reg'],
         config['lstm_reg'],
         config['output_reg']
@@ -121,7 +124,7 @@ model.fit(train_dataset,
 )
 """
 
-batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv")
+batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv", f"{run_path}")
 epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
 
 checkpoint_path = f"{run_path}/model/" 
@@ -145,14 +148,45 @@ checkpoint_latest = ModelCheckpoint(checkpoint_path_latest,
         mode = 'min',
         period=1)
 
+logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+tensorboard_callback = TensorBoard(
+        log_dir=logdir, 
+        histogram_freq=1,
+        write_graph=True,
+        write_images=True,
+        embeddings_freq=1,
+        )
 
-_callbacks = [batch_loss_writer, epoch_loss_writer, checkpoint_best, checkpoint_latest]
+_callbacks = [
+        batch_loss_writer, 
+        epoch_loss_writer, 
+        checkpoint_best, 
+        checkpoint_latest,
+        tensorboard_callback,
+]
+
 callbacks = tf.keras.callbacks.CallbackList(
             _callbacks, add_history=True, model=model)
 
 logs = {}
 callbacks.on_train_begin(logs=logs)
 
+
+def dotfit():
+    train_generator = create_generator(data_train, train_vector, train_keys, True)
+    val_generator = create_generator(data_val, val_vector, val_keys, True)
+
+    model.fit(
+            train_generator,
+            epochs=config['epochs'],
+            steps_per_epoch=len(data_train)//config['batch_size'],
+            batch_size=config['batch_size'],
+            callbacks=_callbacks,
+            validation_data = val_generator,
+            validation_steps = len(data_val)//config['batch_size'],
+            initial_epoch = 0
+    )
+    return
 
 def custom_train_loop():
     print(f"------\nRunning custom training loop")
@@ -220,6 +254,12 @@ def custom_train_loop():
     return
 
 if __name__ == '__main__':
-    custom_train_loop()
-    print(f"Done.")
+    try:
+        #custom_train_loop()
+        dotfit()
+    except KeyboardInterrupt as e:
+        print("--Keyboard Interrupt--")
+    finally:
+        print(f"Done.")
+
 

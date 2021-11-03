@@ -7,9 +7,11 @@ from tensorflow.keras.layers import (Dense,
                             Input,
                             Lambda,
                             TimeDistributed,
+                            LeakyReLU,
+                            ReLU,
                             )
 from tensorflow.keras.models import Model
-from tensorflow.keras.initializers import RandomUniform
+from tensorflow.keras.initializers import RandomUniform, GlorotNormal
 from tensorflow.keras.regularizers import L2
 import numpy as np
 import sys
@@ -17,7 +19,7 @@ import sys
 class NIC(tf.keras.Model):
     """ Class holding the neural network model """
 
-    def __init__(self, input_size, units, embedding_dim, vocab_size, max_length, dropout_input, dropout, input_reg, lstm_reg, output_reg):
+    def __init__(self, input_size, units, embedding_dim, vocab_size, max_length, dropout_input, dropout, dropout_lstm, input_reg, lstm_reg, output_reg):
         """ Initialisation method. Builds the keras.Model
 
         Parameters
@@ -45,7 +47,7 @@ class NIC(tf.keras.Model):
         super(NIC, self).__init__()
 
         # Image input
-        self.input1 = Input(shape=(input_size,))
+        #self.input1 = Input(shape=(input_size,))
 
         # L2 Regularizers
         self.l2_in = L2(input_reg)
@@ -54,11 +56,14 @@ class NIC(tf.keras.Model):
         self.dropout = Dropout(dropout)
         self.dropout_input = Dropout(dropout_input)
 
+        self.relu = LeakyReLU(0.2)
+
         # Batch Norm
-        #self.batch_norm = BatchNormalization(name='batch_norm')
+        self.batch_norm = BatchNormalization(name='batch_norm')
 
         self.dense_in = Dense(embedding_dim, use_bias=True,
-                kernel_initializer=RandomUniform(-0.08, 0.08),
+                activation=self.relu,
+                kernel_initializer=GlorotNormal(), #RandomUniform(-0.08, 0.08),
                 kernel_regularizer=self.l2_in,
                 name = 'dense_img'
         )
@@ -66,7 +71,7 @@ class NIC(tf.keras.Model):
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
-        self.input2 = Input(shape=(max_length,))
+        #self.input2 = Input(shape=(max_length,))
         self.embedding = Embedding(vocab_size, 
                 embedding_dim, 
                 mask_zero=True,
@@ -78,7 +83,7 @@ class NIC(tf.keras.Model):
                 return_sequences=True,
                 return_state=True,
                 kernel_regularizer=self.l2_lstm,
-                bias_regularizer=self.l2_lstm,
+                dropout=dropout_lstm,
                 name = 'lstm'
         )
 
@@ -87,13 +92,12 @@ class NIC(tf.keras.Model):
                 Dense(vocab_size,
                     activation='softmax',
                     kernel_regularizer=self.l2_out,
-                    bias_regularizer=self.l2_out,
-                    kernel_initializer=RandomUniform(-0.08, 0.08),
+                    kernel_initializer=GlorotNormal(), #RandomUniform(-0.08, 0.08),
                 ),
                 name = 'time_distributed_softmax'
         )
 
-    def call(self, img_input, text_input, a0, c0, training=False):
+    def call(self, data, training=False):
         """ Model call 
         
         Parameters
@@ -112,35 +116,31 @@ class NIC(tf.keras.Model):
             output : ndarray
                 a (batch_size, max_len, vocab_size) array holding predictions
         """
+        img_input, text_input, a0, c0 = data
 
         # Dropout some input
         img_input = self.dropout_input(img_input)
 
         # Betas Encoding 
-        features = self.dense_in(img_input) 
-        if training:
-            features = self.dropout(features)
+        features = self.dense_in(img_input, training=training)
+        features = self.dropout(features, training=training)
         features = self.expand(features)
-        #features = self.batch_norm(features)
+        features = self.batch_norm(features)
 
         # Embed the caption vector
         text = self.embedding(text_input)
-        if training:
-            text = self.dropout(text)
+        self.dropout(text, training=training)
 
         a0 = tf.convert_to_tensor(a0)
         c0 = tf.convert_to_tensor(c0)
 
         # Pass through LSTM
-        _, a, c = self.lstm(features, initial_state=[a0,c0])
+        _, a, c = self.lstm(features, initial_state=[a0,c0], training=training)
 
-        A, _, _ = self.lstm(text, initial_state=[a,c])
-
-        if training:
-            A = self.dropout(A)
+        A, _, _ = self.lstm(text, initial_state=[a,c], training=training)
 
         # Convert LSTM output back to (5000,) probability vector
-        output = self.dense_out(A)
+        output = self.dense_out(A, training=training)
 
         return output
 
@@ -174,18 +174,18 @@ class NIC(tf.keras.Model):
 
         features = self.dense_in(img_input)
         features = self.expand(features)
-        #features = self.batch_norm(features)
+        features = self.batch_norm(features)
 
         text = self.embedding(start_seq)
         text = self.expand(text)
 
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
-        final = tf.squeeze(whole, axis=1)
+        #final = tf.squeeze(whole, axis=1)
 
         outputs = []
         for i in range(max_len):
             whole, final, c = self.lstm(text, initial_state=[final,c])
-            final = tf.squeeze(whole, axis=1)
+            #final = tf.squeeze(whole, axis=1)
 
             output = self.dense_out(whole)
             outputs.append( output )
@@ -221,10 +221,12 @@ class NIC(tf.keras.Model):
 
             # Call model on sample
             prediction = self(
-                    img_input, 
-                    text_input, 
-                    a0, 
-                    c0, 
+                    (
+                        img_input, 
+                        text_input, 
+                        a0, 
+                        c0, 
+                    ),
                     training=True
             ) # (64, 10, 5000) (bs, max-length, vocab_size)
 
@@ -272,7 +274,15 @@ class NIC(tf.keras.Model):
         accuracy = 0
 
         # Call model on sample
-        prediction = self(img_input, text_input, a0, c0, False)
+        prediction = self(
+                (
+                    img_input, 
+                    text_input, 
+                    a0, 
+                    c0
+                ), 
+                training=False
+        )
 
         # Get the loss
         for i in range(0, target.shape[1]):
@@ -286,7 +296,7 @@ class NIC(tf.keras.Model):
         if len(self.losses) != 0:
             l2_loss += tf.add_n(self.losses)
 
-        return {"val_loss": cross_entropy_loss, "val_L2": l2_loss, 'val_accuracy': accuracy}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
 
     def loss_function(self, real, pred):
         """ Call the compiled loss function """

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import nibabel as nb
 import cortex
+from itertools import groupby
 
 """
 Split betas into several masked regions
@@ -29,12 +30,34 @@ print("glasser   ", glasser.shape)
 visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
 visual_parcel_list = list(visual_parcels.values.flatten())
 
+"""
+# glasser has 181 unique values ranging from 0 - 180
+groups = [list(grp) for k, grp in groupby(glasser)]
+print("len groups", len(groups))
+print(groups[0:10])
 
+#groups = [i for i in groups if len(i) > 1]
+#print("groups with length > 1", len(groups))
+
+
+#raise Exception("stop")
+"""
+
+# All parcels
+groups = []
+glasser_indices = np.array(range(len(glasser)))
+for i in set(glasser):
+    group = glasser_indices[glasser == i]
+    groups.append(group)
+
+# Visual parcels
+"""
 groups = []
 glasser_indices = np.array(range(len(glasser)))
 for i in visual_parcel_list:
     group = glasser_indices[glasser==i]
     groups.append(group)
+"""
 
 ngroups = len(groups)
 group_size = [len(g) for g in groups]
@@ -46,12 +69,13 @@ print("ngroups: ", ngroups)
 print("smallest:", smallest)
 print("largest: ", largest)
 
+fake_data = np.random.uniform(0, 1, (glasser.shape))
 
 visual_glasser = np.zeros(glasser.shape)
 visual_glasser.fill(np.nan)
 colour = 10
 for g in groups:
-    visual_glasser[g] = colour
+    visual_glasser[g] = colour # fake_data[g] # colour
     colour += 10
 
 vert = cortex.Vertex(visual_glasser, 'fsaverage')

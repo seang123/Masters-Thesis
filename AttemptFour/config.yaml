@@ -1,32 +1,35 @@
 ---
  # Name the current run
- run: loc_con_attention
+ run: modified_pipeline
 
  info: | 
-     Locally connected attention 
-     just used for testing the checkpoint and loading into eval for non-greedy eval testing
+     testing the pipeline modifications
 
  # Data stores
  dataset:
-     betas_path: "/huge/seagie/data/subj_2/betas_meaned/"
+     betas_path: "/huge/seagie/data/subj_2/betas_averaged/"
      captions_path: "/huge/seagie/data/subj_2/captions/"
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
 
+ seed: 42
+
  # Training
- epochs: 5
+ epochs: 10
  batch_size: 128
- max_length: 11
+ max_length: 10
  optimizer: Adam
  alpha: 0.001
  decay: 0 #1.0e-4
- dropout_input: 0 # 0.25
- dropout_features: 0 # 0.05
- dropout_text: 0 # 0.35
 
- input_reg: 0 # 9.1        # scientific notation requires decimal notation - x.0e
- lstm_reg: 0 # 0.19
- output_reg: 0 #0.0005
+ dropout_input: 0 # 0.17
+ dropout_features: 0 # 0.18
+ dropout_text: 0 # 0.01
+ dropout_lstm: 0
+
+ input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
+ lstm_reg: 0.01 # 0.0003 
+ output_reg: 0 # 1.3e-5
 
  # Input size
  input: 
@@ -37,7 +40,7 @@
 
  # Model size 
  units: 512
- embedding_dim: 64
+ embedding_dim: 256
  top_k: 5000
 
 

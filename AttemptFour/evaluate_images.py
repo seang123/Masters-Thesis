@@ -13,7 +13,7 @@ from Model import NIC
 from DataLoaders import load_images as loader
 from nsd_access import NSDAccess
 
-gpu_to_use = 2
+gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -43,21 +43,25 @@ else:
 ## Load data 
 data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys = loader.load_data_img(top_k = config['top_k'], _max_length = config['max_length'], train_test_split = 0.9)
 
-def create_generator(data, cap, keys):
-    return loader.data_generator(data, cap, keys, config['units'], config['top_k'], batch_size, training=False)
+batch_size = 25
 
-val_generator = create_generator(data_val, val_vector, val_keys)
+def create_generator(data, cap, keys, batch_size, training):
+    return loader.data_generator(data, cap, keys, config['units'], config['top_k'], batch_size, training=training)
+
+val_generator = create_generator(data_val, val_vector, val_keys, batch_size, training=False)
 
 print("data loaded successfully")
 
 ## Set-up model
 model = NIC.NIC(
-        config['input']['vc'],
+        config['input']['mscoco'],
         config['units'], 
         config['embedding_dim'], 
         vocab_size,
         config['max_length'],
-        config['dropout'],
+        config['dropout_input'],
+        config['dropout_features'],
+        config['dropout_lstm'],
         config['input_reg'],
         config['lstm_reg'],
         config['output_reg']
@@ -67,7 +71,7 @@ x = np.random.uniform(0, 1, size=(config['batch_size'], config['input']['mscoco'
 y = np.random.randint(0, 2, size=(config['batch_size'], config['max_length']), dtype=np.int32)
 z1 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
 z2 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
-model(x,y,z1,z2)
+model((x,y,z1,z2),False)
 print("model built")
 
 

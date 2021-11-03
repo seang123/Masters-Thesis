@@ -2,6 +2,7 @@ import subprocess as sp
 import re
 import time
 import datetime
+from Tensorgram import tensorbot as tb
 
 def get_smi_out():
     x = sp.run(["nvidia-smi"], capture_output=True)
@@ -10,7 +11,8 @@ def get_smi_out():
 def get_memory_usage():
     """ Query nvidia-smi for current gpu memory usage
 
-    Return:
+    Returns
+    -------
         list of memory usages values as strings
     """
     # run nvidia-smi command and capture output
@@ -51,7 +53,7 @@ def monitor(threshold = 2000, wait = 5, gpu_choice=None):
     """Monitor a target gpu, or all gpus, for memory availability.
 
     """
-    print(f"Monitoring GPU (target={gpu_choice}) memory usage for availablility. Threshold set at {threshold} MiB.")
+    print(f"Monitoring GPU (target={'All' if gpu_choice == None else gpu_choice}) memory usage for availablility. Threshold set at {threshold} MiB.")
 
     if gpu_choice == None:
         gpu_to_use = _monitor(threshold, wait)
