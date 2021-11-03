@@ -66,6 +66,13 @@ val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_apirs  : {len(val_pairs)}")
 
+print(train_pairs[0])
+
+print("set train_pairs", len(list(set([int(i[0]) for i in train_pairs]))))
+print("set val_pairs", len(list(set([int(i[0]) for i in val_pairs]))))
+
+raise
+
 # Returns a generator object 
 create_generator = lambda pairs, training: loader.lc_batch_generator(pairs, 
             config['dataset']['betas_path'],
@@ -151,14 +158,14 @@ warmup = WarmupScheduler.WarmupScheduler(1, 0.00001, config['alpha'])
 early_stop = EarlyStopping(monitor="val_loss", min_delta=0.001, patience=5)
 reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patience=10, min_delta=0.005, min_lr=0.00001)
 
-logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+logdir = f"./tb_logs/scalars/{config['run']}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
-        histogram_freq=1,
-        write_graph=True,
-        write_images=True,
-        embeddings_freq=1,
-        profile_batch='200,220',
+        #histogram_freq=1,
+        #write_graph=True,
+        #write_images=True,
+        #embeddings_freq=1,
+        #profile_batch='200,220',
         )
 file_writer = tf.summary.create_file_writer(logdir)
 
@@ -276,7 +283,7 @@ def custom_train_loop():
 
             # data -> ([betas, cap_vector, a0, c0], target)
             #print( "tf.executing_eagerly()", tf.executing_eagerly() )
-            losses, grad = model.train_step(data)
+            losses = model.train_step(data)
 
             grads.append(grad)
 
@@ -309,16 +316,16 @@ def custom_train_loop():
     # On-Train-End
     callbacks.on_train_end(logs=logs)
 
-    df = pd.DataFrame(grads)
+    #df = pd.DataFrame(grads)
     #df.to_csv(f'{run_path}/df_grads.csv')
-    df.to_pickle(f'{run_path}/df_grads.csv')
+    #df.to_pickle(f'{run_path}/df_grads.csv')
 
     return
 
 if __name__ == '__main__':
     try:
-        custom_train_loop()
-        #dotfit()
+        #custom_train_loop()
+        dotfit()
     except KeyboardInterrupt as e:
         print("--Keyboard Interrupt--")
     finally:

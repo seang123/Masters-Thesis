@@ -361,9 +361,14 @@ def main():
     nsd_keys, _ = get_nsd_keys(nsd_dir) # (10_000,)
     shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
 
+    print("len(set(nsd_keys))", len(list(set(nsd_keys))))
+    print("len(set(shr_nsd_keys))", len(list(set(shr_nsd_keys))))
+
     train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
     val_keys = shr_nsd_keys
 
+    print(len(train_keys))
+    print(len(val_keys))
 
     train_pairs = create_pairs(train_keys, captions_path)
     val_pairs = create_pairs(val_keys, captions_path)

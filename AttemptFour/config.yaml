@@ -1,11 +1,12 @@
 ---
  # Name the current run
- run: debug_shuffle_samples
+ run: debug_shuffle_samples_noise
 
  info: | 
      check how the model performs if we randomly shuffle the betas and the captions separately. 
      Currently, I believe they match correctly however if we do this and the performance stays the same
      it suggests the betas-captions doesn't actually match.
+     now instead of shuffling the betas, I'm just going to feed in random noise
 
  # Data stores
  dataset:

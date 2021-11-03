@@ -37,8 +37,14 @@ class DataGenerator(keras.utils.Sequence):
         np.random.seed(self.seed)
         self.on_epoch_end()
 
+        print("unq pair keys", len(self.unq_pair_keys))
+        
+
         if self.load_to_memory:
             self.betas_data, self.nsd_idx = self.load_betas_into_mem()
+
+            print("self.betas_data.shape", self.betas_data.shape)
+
     
     def load_betas_into_mem(self):
         """ Load betas into memory
@@ -97,9 +103,11 @@ class DataGenerator(keras.utils.Sequence):
         if self.load_to_memory:
             idxs = []
             for i, v in enumerate(nsd_key):
+                #idx = np.random.randint(0, self.betas_data.shape[0])
                 idx = self.nsd_idx[str(v)] # for the nsd_key get the relevant memory idx
-                idxs.append(idx)
-                betas_batch[i, :] = self.betas_data[idx]
+                #idxs.append(idx)
+                #shfle_idx = np.arange(0, self.betas_data[idx].shape[0])
+                betas_batch[i, :] = np.random.normal(0, 1, size=(327684,))#self.betas_data[idx]
             #betas_batch[:,:] = self.betas_data[idxs]
         else:
             for i, v in enumerate(nsd_key):
