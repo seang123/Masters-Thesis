@@ -279,7 +279,7 @@ def custom_train_loop():
 
             # data -> ([betas, cap_vector, a0, c0], target)
             #print( "tf.executing_eagerly()", tf.executing_eagerly() )
-            losses = model.train_step(data)
+            losses, grad = model.train_step(data)
 
             grads.append(grad)
 
@@ -312,16 +312,16 @@ def custom_train_loop():
     # On-Train-End
     callbacks.on_train_end(logs=logs)
 
-    #df = pd.DataFrame(grads)
-    #df.to_csv(f'{run_path}/df_grads.csv')
-    #df.to_pickle(f'{run_path}/df_grads.csv')
+    df = pd.DataFrame(grads)
+    df.to_csv(f'{run_path}/df_grads.csv')
+    df.to_pickle(f'{run_path}/df_grads.csv')
 
     return
 
 if __name__ == '__main__':
     try:
-        #custom_train_loop()
-        dotfit()
+        custom_train_loop()
+        #dotfit()
     except KeyboardInterrupt as e:
         print("--Keyboard Interrupt--")
     finally:

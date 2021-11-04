@@ -316,7 +316,7 @@ class NIC(tf.keras.Model):
 
 
 
-    @tf.function
+    #@tf.function
     def train_step(self, data):
         """ Single backprop train step 
         
@@ -372,6 +372,7 @@ class NIC(tf.keras.Model):
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
+        
         #cc = 0
         #for grad in gradients:
         #    if cc % 2 == 0:
@@ -380,14 +381,15 @@ class NIC(tf.keras.Model):
         #        print(grad.name, "--", grad.shape)
         #    cc += 1
         #raise Exception("stop")
-        #grad_sum = []
+        grad_sum = []
         #cc = 0
-        #for grad in gradients:
-        #    if cc % 2 == 0:
-        #        grad_sum.append(tf.reduce_sum(grad, axis=0).numpy())
-        #    cc += 1
+        for grad in gradients:
+            #if cc % 2 == 0:
+            grad_sum.append( tf.reduce_sum(tf.math.square(grad), axis=0).numpy() ) # first part of Euclidean norm
+            #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
+            #cc += 1
 
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}, grad_sum
 
     @tf.function
     def test_step(self, data):

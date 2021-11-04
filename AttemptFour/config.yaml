@@ -1,9 +1,9 @@
 ---
  # Name the current run
- run: modified_pipeline
+ run: get_gradients
 
  info: | 
-     testing the pipeline modifications
+     collect the gradients to csv
 
  # Data stores
  dataset:
@@ -15,7 +15,7 @@
  seed: 42
 
  # Training
- epochs: 10
+ epochs: 1
  batch_size: 128
  max_length: 10
  optimizer: Adam
@@ -28,7 +28,7 @@
  dropout_lstm: 0
 
  input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
- lstm_reg: 0.01 # 0.0003 
+ lstm_reg: 0 # 0.0003 
  output_reg: 0 # 1.3e-5
 
  # Input size
