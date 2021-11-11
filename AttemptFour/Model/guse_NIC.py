@@ -7,104 +7,93 @@ from tensorflow.keras.layers import (Dense,
                             Input,
                             Lambda,
                             TimeDistributed,
-                            )
+                            LeakyReLU,
+                            ReLU)
 from tensorflow.keras.models import Model
-from tensorflow.keras.initializers import RandomUniform
+from tensorflow.keras.initializers import RandomUniform, GlorotNormal
 from tensorflow.keras.regularizers import L2
-import numpy as np
+from tensorflow_addons import seq2seq
+from . import layers
+from . import attention
+from . import localDense
 import sys
+import numpy as np
+from collections import defaultdict
+import logging
+
+loggerA = logging.getLogger(__name__ + '.lc_model')
 
 class NIC(tf.keras.Model):
-    """ Class holding the neural network model """
+    """
+    Use the GUSE embeddings as input to the LSTM instead of the brain
+    """
 
-    def __init__(self, input_size, units, embedding_dim, vocab_size, max_length, dropout_rate, input_reg, lstm_reg, output_reg):
+    def __init__(self, in_groups, out_groups, units, embedding_dim, vocab_size, max_length, dropout_input, dropout, dropout_text, input_reg, lstm_reg, output_reg):
         """ Initialisation method. Builds the keras.Model
-
         Parameters
         ----------
-            input_size : int 
-                the size of the input features. eg: (62756,) for betas visual cortex
-            units : int
-                nr of hidden units in LSTM
-            embedding_dim : int
-                nr of hidden in dense encoder
-            vocab_size : int
-                vocabulary size - nr of hidden units in the dense out layer
-            max_length : int
-                max caption length
-            dropout_rate : float
-                the dropout rate
-            input_reg : float
-                L2 lambda on input layer 
-            lstm_reg : float
-                L2 lambda on LSTM 
-            output_reg : float
-                L2 lambda on output layer
-
         """
         super(NIC, self).__init__()
 
-        # Image input
-        self.input1 = Input(shape=(input_size,))
 
         # L2 Regularizers
         self.l2_in = L2(input_reg)
         self.l2_lstm = L2(lstm_reg)
-        self.l2_out = L2(lstm_reg)
-        self.dropout = Dropout(dropout_rate)
+        self.l2_out = L2(output_reg)
+        #self.dropout = Dropout(dropout)
+        self.dropout_input = Dropout(dropout_input)
+        self.dropout_text = Dropout(dropout_text)
 
-        # Batch Norm
-        #self.batch_norm = BatchNormalization(name='batch_norm')
+        #self.relu = ReLU()
 
-        self.dense_in = Dense(embedding_dim, use_bias=True,
-                kernel_initializer=RandomUniform(-0.08, 0.08),
-                kernel_regularizer=self.l2_in,
-                name = 'dense_img'
-        )
-
-        self.dense_2 = Dense(embedding_dim, use_bias=True,
-                kernel_initializer=RandomUniform(-0.08, 0.08),
-                kernel_regularizer=self.l2_in,
-                name = 'dense_2'
-        )
+        self.MSE = tf.keras.losses.MeanSquaredError()
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
-        self.input2 = Input(shape=(max_length,))
         self.embedding = Embedding(vocab_size, 
-                embedding_dim, 
-                mask_zero=True,
-                name = 'emb_text',
+            embedding_dim, 
+            embeddings_initializer=RandomUniform(-0.08, 0.08),
+            mask_zero=True,
+            #activity_regularizer=self.l2_in,
+            name = 'emb_text',
         )
 
         # LSTM layer
         self.lstm = LSTM(units,
-                return_sequences=True,
-                return_state=True,
-                kernel_regularizer=self.l2_lstm,
-                bias_regularizer=self.l2_lstm,
-                name = 'lstm'
+            return_sequences=True,
+            return_state=True,
+            kernel_regularizer=self.l2_lstm,
+            #activity_regularizer=self.l2_lstm,
+            #kernel_initializer=RandomUniform(-0.08, 0.08),
+            #recurrent_initializer=RandomUniform(-0.08, 0.08),
+            dropout=dropout,
+            name = 'lstm'
         )
 
         # Output dense layer
         self.dense_out = TimeDistributed(
-                Dense(vocab_size,
-                    activation='softmax',
-                    kernel_regularizer=self.l2_out,
-                    bias_regularizer=self.l2_out,
-                    kernel_initializer=RandomUniform(-0.08, 0.08),
-                ),
-                name = 'time_distributed_softmax'
+            Dense(
+                vocab_size,
+                activation='softmax',
+                kernel_regularizer=self.l2_out,
+                #kernel_initializer=RandomUniform(-0.08,0.08),
+                kernel_initializer=GlorotNormal(),
+                bias_initializer='zeros',
+                #activity_regularizer=self.l2_out,
+            ),
+            name = 'time_distributed_softmax'
         )
+        logging.debug("Model initialized")
 
-    def call(self, img_input, text_input, a0, c0, training=False):
-        """ Model call 
+
+    def call(self, data, training=False):
+        """ Forward Pass
         
         Parameters
         ----------
             img_input : ndarray
-                the features (betas/CNN)
+                the features (betas/CNN) (327684,)
             text_input : ndarray
                 caption, integer encoded
             a0 : ndarray
@@ -118,39 +107,31 @@ class NIC(tf.keras.Model):
                 a (batch_size, max_len, vocab_size) array holding predictions
         """
 
-        # Betas Encoding 
-        features = self.dense_in(img_input) 
-        if training:
-            features = self.dropout(features)
-        features = self.dense_2(features)
-        if training:
-            features = self.dropout(features)
-        features = self.expand(features)
-        #features = self.batch_norm(features)
+        _, text_input, a0, c0, guse = data[0], data[1], data[2], data[3], data[4]
+
+        guse = self.dropout_input(guse, training=training)
+
+        guse = self.expand(guse)
 
         # Embed the caption vector
         text = self.embedding(text_input)
-        if training:
-            text = self.dropout(text)
+        text = self.dropout_text(text, training=training)
 
         a0 = tf.convert_to_tensor(a0)
         c0 = tf.convert_to_tensor(c0)
 
         # Pass through LSTM
-        _, a, c = self.lstm(features, initial_state=[a0,c0])
+        #A, _, _ = self.lstm(tf.concat([features, text], axis=1), initial_state=[a0, c0], training=training)
+        _, a, c = self.lstm(guse, initial_state=[a0, c0], training=training)
+        A, _, _ = self.lstm(text, initial_state=[a, c], training=training)
 
-        A, _, _ = self.lstm(text, initial_state=[a,c])
-
-        if training:
-            A = self.dropout(A)
-
-        # Convert LSTM output back to (5000,) probability vector
-        output = self.dense_out(A)
+        # Convert to vocab
+        output = self.dense_out(A, training=training)
 
         return output
 
 
-    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units):
+    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator
@@ -177,20 +158,20 @@ class NIC(tf.keras.Model):
 
         """
 
-        features = self.dense_in(img_input)
-        features = self.expand(features)
-        #features = self.batch_norm(features)
+        #features = self.dense_in(img_input)
+        #features = self.expand(features)
+        features = img_input
 
         text = self.embedding(start_seq)
         text = self.expand(text)
 
+        print("features", features.shape)
+        # Call LSTM on features
         whole, final, c = self.lstm(features, initial_state=[a0, c0])
-        final = tf.squeeze(whole, axis=1)
 
         outputs = []
         for i in range(max_len):
-            whole, final, c = self.lstm(text, initial_state=[final,c])
-            final = tf.squeeze(whole, axis=1)
+            whole, final, c = self.lstm(text, initial_state=[final, c])
 
             output = self.dense_out(whole)
             outputs.append( output )
@@ -198,7 +179,6 @@ class NIC(tf.keras.Model):
             text = self.embedding(text)
 
         return np.array(outputs)
-
 
     @tf.function()
     def train_step(self, data):
@@ -214,24 +194,23 @@ class NIC(tf.keras.Model):
             dict
                 loss/accuracy metrics
         """
-
-        img_input, text_input, a0, c0 = data[0]
         target = data[1] # (batch_size, max_length, 5000)
 
         l2_loss = 0
         cross_entropy_loss = 0
         accuracy = 0
 
+        #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
+
         with tf.GradientTape() as tape:
 
             # Call model on sample
             prediction = self(
-                    img_input, 
-                    text_input, 
-                    a0, 
-                    c0, 
+                    (
+                        data[0]
+                    ), 
                     training=True
-            ) # (64, 10, 5000) (bs, max-length, vocab_size)
+            ) # (bs, max-length, vocab_size)
 
             # Get the loss
             for i in range(0, target.shape[1]):
@@ -239,11 +218,11 @@ class NIC(tf.keras.Model):
                 accuracy += self.accuracy_calculation(target[:,i], prediction[:,i])
 
             # Normalise across sentence
-            cross_entropy_loss = (cross_entropy_loss / int(target.shape[1]))
-            accuracy = accuracy / int(target.shape[1])
+            cross_entropy_loss /= int(target.shape[1])
+            accuracy /= int(target.shape[1])
 
-            if len(self.losses) != 0:
-                l2_loss += tf.add_n(self.losses)
+            #if len(self.losses) != 0:
+            l2_loss = tf.add_n(self.losses)
 
             # Sum losses for backprop
             total_loss = tf.add(cross_entropy_loss, l2_loss)
@@ -251,10 +230,27 @@ class NIC(tf.keras.Model):
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
-        
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}
 
-    @tf.function()
+        
+        #cc = 0
+        #for grad in gradients:
+        #    if cc % 2 == 0:
+        #       print(">", grad.name, "--", grad.shape)
+        #   else:
+        #        print(grad.name, "--", grad.shape)
+        #    cc += 1
+        #raise Exception("stop")
+        #grad_sum = []
+        #cc = 0
+        #for grad in gradients:
+        #    #if cc % 2 == 0:
+        #    grad_sum.append( tf.reduce_sum(tf.math.square(grad), axis=0).numpy() ) # first part of Euclidean norm
+        #    #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
+        #    #cc += 1
+
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+
+    @tf.function
     def test_step(self, data):
         """ Called during validation 
 
@@ -269,7 +265,6 @@ class NIC(tf.keras.Model):
                 loss/accuracy metrics
         """
         
-        img_input, text_input, a0, c0 = data[0]
         target = data[1]
 
         l2_loss = 0
@@ -277,7 +272,12 @@ class NIC(tf.keras.Model):
         accuracy = 0
 
         # Call model on sample
-        prediction = self(img_input, text_input, a0, c0, False)
+        prediction = self(
+                (
+                    data[0]
+                ),
+                training=False
+        )
 
         # Get the loss
         for i in range(0, target.shape[1]):
@@ -288,16 +288,19 @@ class NIC(tf.keras.Model):
         cross_entropy_loss /= int(target.shape[1])
         accuracy /= int(target.shape[1])
 
-        if len(self.losses) != 0:
-            l2_loss += tf.add_n(self.losses)
+        #if len(self.losses) != 0:
+        l2_loss = tf.add_n(self.losses)
 
-        return {"val_loss": cross_entropy_loss, "val_L2": l2_loss, 'val_accuracy': accuracy}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
 
+    @tf.function
     def loss_function(self, real, pred):
         """ Call the compiled loss function """
+        real = tf.convert_to_tensor(real)
         loss_ = self.compiled_loss(real, pred)
         return tf.reduce_mean(loss_)
 
+    @tf.function
     def accuracy_calculation(self, real, pred):
         """ Compute Accuracy
 
@@ -314,13 +317,36 @@ class NIC(tf.keras.Model):
         """
         real_arg_max = tf.math.argmax(real, axis = 1) 
         pred_arg_max = tf.math.argmax(pred, axis = 1)
-
         count = tf.reduce_sum(tf.cast(real_arg_max == pred_arg_max, tf.float32))
         return count / real_arg_max.shape[0]
+
         
 
+    @staticmethod
+    def select_topk(probability_vector, k: int = 5):
 
+        idxs = np.argsort(probability_vector)
+        return idxs[:k]
 
+    @staticmethod
+    def select_nucleus(probability_vector, p: float = 0.5):
+        """ Selects top-p choices from a probability vector
+
+        Similary to how top-k selects the top k elements, top-p
+        selecets the top k elements such that their sum is >= p
+
+        Note: shouldn't take batched data. ie. only single batch 
+        """
+        probability_vector = np.squeeze(probability_vector) 
+
+        idxs = np.argsort(probability_vector)
+        vals, probs, cumsum = [], [], 0.0
+        for _, v in enumerate(idxs):
+            vals.append(v)
+            probs.append(probability_vector[v])
+            cumsum += probability_vector[v]
+            if cumsum > p:
+                return vals, probs
 
 
 

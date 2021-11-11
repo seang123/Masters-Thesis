@@ -25,20 +25,22 @@ class LocallyDense(tf.keras.layers.Layer):
         '''
         super(LocallyDense, self).__init__()
 
-        self.act = LeakyReLU(alpha = 0.2)
-
         self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
         self.input_groups = input_groups
 
 
+
     def call(self, x, training=False):
         """ Forward pass """
-        out = [self.act(layer(tf.gather(x, idx, axis=1)), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
+        out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
+        """ old way
         out = tf.convert_to_tensor(out) # (41, bs, embed_dim)
         out = tf.transpose(out, perm = [1,0,2]) # (bs, 41, embed_dim)
         #out = tf.reduce_sum(out, axis=1)
+        """
 
-
+        out = tf.convert_to_tensor(out)
+        out = tf.transpose(out, perm=[1,0,2])
 
         return out  
 

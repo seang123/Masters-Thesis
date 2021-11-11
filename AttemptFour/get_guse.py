@@ -73,6 +73,23 @@ def create_single(keys):
     with open(f"/huge/seagie/data/subj_2/guse/guse_embeddings_flat.npy", "wb") as f:
         np.save(f, g)
 
+def create_average(keys):
+    """ Average across the 5 embeddings per NSD key """
+    g = np.zeros((10000, 5, 512))
+    for i, key in enumerate(keys):
+        for c in range(5):
+            with open(f"/huge/seagie/data/subj_2/guse/guse_embedding_KID{key}_CID{c}.npy", "rb") as f:
+                g[i, c, :] = np.load(f)
+
+    g = np.mean(g, axis=1)
+    assert g.shape == (10000, 512), "incorrect shape"
+
+    for i, key in enumerate(keys):
+        with open(f"/huge/seagie/data/subj_2/guse_averaged/guse_embedding_KID{key}.npy", "wb") as f:
+            np.save(f, g[i:])
+        print(f"batch: {i}", end="\r")
+            
+
 
 if __name__ == '__main__':
     """
@@ -80,13 +97,16 @@ if __name__ == '__main__':
     the guse for a single key is (5,512)
     """
 
+
     df = pd.read_csv(f"{nsd_keys}")
     nsd_keys = list( df['nsd_key'].values )
 
     sample_captions = get_captions(nsd_keys) ### a list of captions that you chose ie. [6,37,45]
     print("sample_captions", len(sample_captions))
 
-    create_single(nsd_keys)
+
+    # Average the guse
+    create_average(nsd_keys)
     raise
 
     #GUSE_model = get_google_encoder(GUSE_model_path)

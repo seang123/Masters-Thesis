@@ -1,9 +1,9 @@
 ---
  # Name the current run
- run: get_gradients
+ run: debug_attention_layer
 
  info: | 
-     collect the gradients to csv
+     Using tf.keras.attention to see how that works. Its possible that my attention implementation is nonsensical
 
  # Data stores
  dataset:
@@ -15,8 +15,8 @@
  seed: 42
 
  # Training
- epochs: 1
- batch_size: 128
+ epochs: 10
+ batch_size: 64
  max_length: 10
  optimizer: Adam
  alpha: 0.001
@@ -40,7 +40,7 @@
 
  # Model size 
  units: 512
- embedding_dim: 256
+ embedding_dim: 512
  top_k: 5000
 
 
