@@ -8,7 +8,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
-from Model import NIC, lc_NIC
+from Model import guse_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
 from DataLoaders import data_generator_guse as generator
@@ -17,8 +17,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 2
-print(f"Running on GPU: {gpu_to_use}")
+gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -65,14 +64,6 @@ print("len(shr_nsd_keys)", len(shr_nsd_keys))
 train_keys = nsd_keys
 val_keys = shr_nsd_keys
 
-print("mixing train and val sets")
-all_keys = np.concatenate((train_keys, val_keys))
-np.random.shuffle(all_keys)
-train_keys = all_keys[:9000]
-val_keys = all_keys[9000:]
-print("train_keys",train_keys.shape)
-print("val_keys", val_keys.shape)
-
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
@@ -113,19 +104,16 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 )
 
 # Setup Model
-model = lc_NIC.NIC(
+model = guse_NIC.NIC(
         loader.get_groups(config['embedding_features'])[0], 
         loader.get_groups(config['embedding_features'])[1],
         config['units'], 
         config['embedding_features'], 
-        config['embedding_text'],
-        config['attn_units'],
         vocab_size,
         config['max_length'],
         config['dropout_input'],
         config['dropout_features'],
         config['dropout_text'],
-        config['dropout_attn'],
         config['input_reg'],
         config['lstm_reg'],
         config['output_reg']
@@ -152,7 +140,7 @@ checkpoint_path_latest = f"{checkpoint_path}model-latest.h5"
 checkpoint_latest = ModelCheckpoint(
         checkpoint_path_latest,
         monitor='val_loss',
-        verbose=0, 
+        verbose=1, 
         save_weights_only = True, 
         save_best_only = False,
         mode = 'min',
@@ -173,7 +161,6 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patienc
 logdir = f"./tb_logs/scalars/{config['run']}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
-        update_freq='batch',
         #histogram_freq=1,
         #write_graph=True,
         #write_images=True,
@@ -214,30 +201,6 @@ def load_all_betas(keys):
 def dotfit():
     logging.info("training with .fit()")
 
-    # tf.data Generator
-    def create_train_gen():
-        return loader.lc_batch_generator(train_pairs,
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training=True
-            )
-    def create_val_gen():
-        return loader.lc_batch_generator(val_pairs,
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training=False
-            )
-
     train_generator = generator.DataGenerator(
             train_pairs, 
             config['batch_size'], 
@@ -245,9 +208,10 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            nsd_keys = train_keys,
-            pre_load_betas=False,
-            shuffle=True, training=True)
+            nsd_keys = nsd_keys,
+            pre_load_betas=False, 
+            shuffle=True, 
+            training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
             config['batch_size'], 
@@ -255,9 +219,11 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            nsd_keys = val_keys,
-            pre_load_betas=False,
-            shuffle=True, training=True)
+            nsd_keys = shr_nsd_keys,
+            pre_load_betas=False, 
+            shuffle=True, 
+            training=True)
+
 
     model.fit(
             train_generator,

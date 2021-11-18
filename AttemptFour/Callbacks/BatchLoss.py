@@ -8,7 +8,7 @@ class BatchLoss(Callback):
     def __init__(self, file_name, summary_path):
         self.f = open(file_name, "w+", newline='')
         self.writer = csv.writer(self.f)
-        self.writer.writerow(['loss', 'reg_loss', 'accuracy'])
+        #self.writer.writerow(['loss', 'reg_loss', 'accuracy'])
         self.summary_path = summary_path
 
 
@@ -31,9 +31,14 @@ class BatchLoss(Callback):
                     self.model.summary()
 
     def on_train_batch_end(self, batch, logs=None):
+        if batch == 0:
+            self.writer.writerow(list(logs.keys()))
         self.batch_losses.append(logs['loss'])
+        #self.writer.writerow(
+        #    [logs['loss'], logs['L2'], logs['accuracy']]
+        #)
         self.writer.writerow(
-            [logs['loss'], logs['L2'], logs['accuracy']]
+                list(logs.values())
         )
         
     def on_train_end(self, logs=None):

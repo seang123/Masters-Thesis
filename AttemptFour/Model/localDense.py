@@ -11,7 +11,7 @@ class LocallyDense(tf.keras.layers.Layer):
     concatenated to a single tensor such that locality in the
     separate groups is conserved. Input groups may be overlapping.
     '''
-    def __init__(self, input_groups, output_groups, embed_dim, **kwargs):
+    def __init__(self, input_groups, output_groups, embed_dim, dropout, **kwargs):
         '''
         input_groups    -   list of n tensors. Each tensor contains indices
                             of the input dimensions belonging to goup n
@@ -36,6 +36,8 @@ class LocallyDense(tf.keras.layers.Layer):
                 **kwargs
         )
 
+        self.dropout = dropout
+
     def call(self, x, training=False):
         """ Forward pass """
         out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
@@ -44,6 +46,7 @@ class LocallyDense(tf.keras.layers.Layer):
         #out = tf.reduce_sum(out, axis=1)
 
         out = tf.concat(out, axis=1)
+        out = self.dropout(out)
         out = self.dense_2(out, training=training) # (bs, embed_dim)
 
         return out  

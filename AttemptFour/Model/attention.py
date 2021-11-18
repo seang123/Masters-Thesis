@@ -73,34 +73,38 @@ class Attention(tf.keras.layers.Layer):
     return the input for the LSTM on the next timestep t_i+1
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, units, dropout, **kwargs):
         super(Attention, self).__init__()
 
+        """ old
         self.attention = tf.keras.layers.Dense(1, **kwargs)
         self.softmax = tf.keras.layers.Softmax(axis = -1)
+        """
+        self.softmax = tf.keras.layers.Softmax(axis=-1)
+        self.dropout = dropout
+        self.W1 = tf.keras.layers.Dense(units, **kwargs)
+        self.W2 = tf.keras.layers.Dense(units, **kwargs)
+        self.V  = tf.keras.layers.Dense(1)
 
     def call(self, hidden, features, training=False):
-        """
-        Parameters
-        ----------
-            hidden 
-                hidden state of lstm at t_i
-            features - ndarray [bs, nr. regions, embedding_dim]
-                features 
-        """
-        hidden = tf.repeat(hidden, repeats=features.shape[1], axis=-1)
-        hidden = tf.reshape(hidden, [hidden.shape[0], features.shape[1], features.shape[2]])
-        x = tf.concat([hidden, features], axis=-1) # (bs, nr_regions, embed_dim*2)
-        y = self.attention(x) # (bs, nr_regions, 1)
 
-        # 2 options
-        # scale the features by the attention
-        # or return just one
-        y = self.softmax(y)
-        context = y * features # (bs, nr_regions, embed_dim)
-        out = tf.reduce_sum(context, axis = 1) # (bs, 1, embed_dim)
+        hidden_with_time_axis = tf.expand_dims(hidden, 1) # (bs, 1, units)
 
-        return out
+        attention_hidden_layer = tf.keras.activations.tanh(
+                self.W1(features) +
+                self.W2(hidden_with_time_axis)
+                ) # (bs, regions, attn_units)
+        attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
+
+        score = self.V(attention_hidden_layer) # (bs, regions, 1)
+
+        attention_weights = self.softmax(score) # (bs, regions, 1)
+
+        context_vector = attention_weights * features # (bs, regions, embed_dim)
+        context_vector = tf.reduce_sum(context_vector, axis=1) # (bs, embed_dim)
+        #context_vector = tf.reduce_mean(context_vector, axis=1)
+
+        return context_vector, attention_weights
 
 
 

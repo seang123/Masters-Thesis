@@ -13,6 +13,7 @@ import collections
 from ian_code import nsd_get_data as ngd 
 import yaml
 import nibabel as nb
+from concurrent.futures import ThreadPoolExecutor
 
 
 np.random.seed(42)
@@ -66,10 +67,11 @@ else:
 
 print("sum of groups sizes:", sum([len(g) for g in groups]))
 print("Avg. group size:    ", np.mean([len(g) for g in groups]))
+print("nr of groups        ", len([len(g) for g in groups]))
 
 def get_groups(out_dim):
-    #return groups, [out_dim for i in range(len(groups))]
-    return groups, [len(g)//100 for g in groups]
+    return groups, [out_dim for i in range(len(groups))]
+    #return groups, [len(g)//100 for g in groups]
 ## =====================
 
 def build_tokenizer(captions_path, top_k = 5000):
@@ -159,6 +161,7 @@ def create_pairs(keys: list, captions_path: str):
     for count, key in enumerate(keys):
         with open(f"{captions_path}SUB2_KID{key}.txt", "r") as f:
             content = f.read()
+            cid = 0
             for line in content.splitlines():
                 cap = line.replace(".", " ")
                 cap = cap.replace(",", " ")
@@ -167,7 +170,8 @@ def create_pairs(keys: list, captions_path: str):
                 cap = [i.lower() for i in cap]
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
-                pairs.append( (key, cap) )
+                pairs.append( (key, cap, cid, count) )
+                cid += 1
 
     return pairs
 
