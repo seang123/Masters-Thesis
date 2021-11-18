@@ -86,7 +86,7 @@ def create_average(keys):
 
     for i, key in enumerate(keys):
         with open(f"/huge/seagie/data/subj_2/guse_averaged/guse_embedding_KID{key}.npy", "wb") as f:
-            np.save(f, g[i:])
+            np.save(f, g[i])
         print(f"batch: {i}", end="\r")
             
 

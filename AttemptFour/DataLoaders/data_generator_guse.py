@@ -17,13 +17,13 @@ n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/huge/seagie/data/subj_2/captions/"
-betas_path = "/huge/seagie/data/subj_2/betas_meaned/"
-guse_path = "/huge/seagie/data/subj_2/guse/"
+betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
+guse_path = "/fast/seagie/data/subj_2/guse_averaged/"
 
 class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
 
-    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, pre_load_betas=False, shuffle=True, training=False):
+    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, nsd_keys, pre_load_betas=False, shuffle=True, training=False):
         print("initialising DataGenerator")
         self.pairs = np.array(pairs)
         self.batch_size = batch_size
@@ -36,20 +36,21 @@ class DataGenerator(keras.utils.Sequence):
         self.pre_load_betas = pre_load_betas
 
         #self.guse = self.load_guse()
-        if pre_load_betas: self.betas = self.load_all_betas([i[0] for i in self.pairs])
+        if pre_load_betas: self.betas = self.load_all_betas(nsd_keys)
         self.on_epoch_end()
 
-    def load_all_betas(keys):
+    def load_all_betas(self,keys):
         betas = np.zeros((keys.shape[0], 327684), dtype=np.float32)
         for i, key in enumerate(keys):
-            with open(f"{config['dataset']['betas_path']}/subj02_KID{key}.npy", "rb") as f:
+            with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
                 betas[i,:] = np.load(f)
 
+        loggerA.info("betas loaded into memory")
         return betas
     
     def load_guse(self):
         """ Load the guse embeddings into memory """
-        logging.info("guse embeddings loaded")
+        loggerA.info("guse embeddings loaded")
         return np.load(open(f"{guse_path}/guse_embeddings_flat.npy", "rb"))
 
 
@@ -65,7 +66,7 @@ class DataGenerator(keras.utils.Sequence):
             np.random.shuffle(idxs)
             self.pairs = self.pairs[idxs]
 
-        logging.info("shuffling dataset")
+        loggerA.info("shuffling dataset")
 
     def __getitem__(self, index):
         """ Return one batch """
@@ -88,11 +89,12 @@ class DataGenerator(keras.utils.Sequence):
 
         #if self.pre_load_betas: betas_batch = self.betas[count,:]
         for i, key in enumerate(nsd_key):
-            #with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-            #    betas_batch[i, :] = np.load(f)
+            with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
+                betas_batch[i, :] = np.load(f)
             #else:
             #betas_batch[i,:] = self.betas[count[i],:]
-            with open(f"{guse_path}/guse_embedding_KID{key}_CID{guse_key[i]}.npy", "rb") as g:
+            #with open(f"{guse_path}/guse_embedding_KID{key}_CID{guse_key[i]}.npy", "rb") as g:
+            with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
                 guse_batch[i,:] = np.load(g)
 
         # Tokenize captions

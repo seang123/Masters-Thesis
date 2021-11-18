@@ -1,13 +1,13 @@
 ---
  # Name the current run
- run: debug_attention_layer
+ run: debug_attention
 
  info: | 
-     Using tf.keras.attention to see how that works. Its possible that my attention implementation is nonsensical
+     attention should be working properly now, lets see how it performs
 
  # Data stores
  dataset:
-     betas_path: "/huge/seagie/data/subj_2/betas_averaged/"
+     betas_path: "/fast/seagie/data/subj_2/betas_averaged/"
      captions_path: "/huge/seagie/data/subj_2/captions/"
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
@@ -15,7 +15,7 @@
  seed: 42
 
  # Training
- epochs: 10
+ epochs: 100
  batch_size: 64
  max_length: 10
  optimizer: Adam
@@ -26,10 +26,11 @@
  dropout_features: 0 # 0.18
  dropout_text: 0 # 0.01
  dropout_lstm: 0
+ dropout_attn: 0
 
- input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
- lstm_reg: 0 # 0.0003 
- output_reg: 0 # 1.3e-5
+ input_reg: 0.01 # 0.002         # scientific notation requires decimal notation - x.0e
+ lstm_reg: 1.0e-8 # 0.0003 
+ output_reg: 1.0e-8 # 1.3e-5
 
  # Input size
  input: 
@@ -39,8 +40,10 @@
      mscoco: 4096
 
  # Model size 
- units: 512
- embedding_dim: 512
+ units: 512 # lstm
+ attn_units: 32
+ embedding_features: 512
+ embedding_text: 256
  top_k: 5000
 
 

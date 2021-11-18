@@ -10,10 +10,10 @@ import tensorflow as tf
 import numpy as np
 from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
-from DataLoaders import data_generator as generator
+from DataLoaders import data_generator_guse as generator
 from nsd_access import NSDAccess
 
-gpu_to_use = 1
+gpu_to_use = 2
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -27,6 +27,9 @@ with open("./config.yaml", "r") as f:
 
 run_name = config['run']
 out_path = os.path.join(config['log'], run_name, 'eval_out')
+
+np.random.seed(config['seed'])
+tf.random.set_seed(config['seed'])
 
 ## Parameters
 vocab_size = config['top_k'] + 1
@@ -43,14 +46,20 @@ else:
 ## Load data
 tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
 
-nsd_keys, _ = loader.get_nsd_keys(config['dataset']['nsd_dir'])
-shr_nsd_keys = loader.get_shr_nsd_keys(config['dataset']['nsd_dir'])
+nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
 
-train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
+train_keys = nsd_keys
 val_keys = shr_nsd_keys
+print("mixing train and val sets")
+all_keys = np.concatenate((train_keys, val_keys))
+np.random.shuffle(all_keys)
+train_keys = all_keys[:9000]
+val_keys = all_keys[9000:]
+print("train_keys",train_keys.shape)
+print("val_keys", val_keys.shape)
 
-train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = 42)
-val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'], seed = 42)
+train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
+val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
@@ -67,34 +76,37 @@ create_generator = lambda pairs, training: loader.lc_batch_generator(pairs,
         )
 
 #val_generator = create_generator(train_pairs, training=False)
-val_generator = generator.DataGenerator(train_pairs, batch_size, tokenizer, config['units'], config['max_length'], vocab_size, load_to_memory=False, seed=42, shuffle=True, training=False)
+val_generator = generator.DataGenerator(
+        train_pairs, 
+        batch_size, 
+        tokenizer, 
+        config['units'], 
+        config['max_length'], 
+        vocab_size, 
+        nsd_keys = train_keys, 
+        pre_load_betas=False,
+        shuffle=True, 
+        training=False)
 
-x = val_generator[0]
-x2 = val_generator[1]
-
-features, _, _, _ = x[0]
-features2, _, _, _ = x2[0]
-
-fig = plt.figure()
-for i in range(features.shape[0]):
-    plt.plot(features[i, 0::10000])
-    plt.plot(features2[i, 0::10000])
-plt.savefig('./some_features.png')
-plt.close(fig)
+#x = val_generator[0]
+#x2 = val_generator[1]
 
 print("data loaded successfully")
 
 ## Set-up model
 model = lc_NIC.NIC(
-        loader.get_groups(config['embedding_dim'])[0],
-        loader.get_groups(config['embedding_dim'])[1],
+        loader.get_groups(config['embedding_features'])[0],
+        loader.get_groups(config['embedding_features'])[1],
         config['units'],
-        config['embedding_dim'], 
+        config['embedding_features'], 
+        config['embedding_text'],
+        config['attn_units'],
         vocab_size,
         config['max_length'],
         config['dropout_input'],
         config['dropout_features'],
         config['dropout_text'],
+        config['dropout_attn'],
         config['input_reg'],
         config['lstm_reg'],
         config['output_reg']
@@ -104,7 +116,7 @@ x = np.random.uniform(0, 1, size=(config['batch_size'], config['input']['full'])
 y = np.random.randint(0, 2, size=(config['batch_size'], config['max_length']), dtype=np.int32)
 z1 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
 z2 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
-model((x,y,z1,z2), training=False)
+model((x,y,z1,z2, None), training=False)
 print("model built")
 
 
@@ -146,7 +158,7 @@ def model_eval(nr_of_batches = 1):
     for i in range(nr_of_batches):
 #        sample = val_generator.__next__()
         sample = val_generator[0]
-        features, _, a0, c0 = sample[0]
+        features, _, a0, c0, _ = sample[0]
         target = sample[1]
         keys = sample[2]
 
@@ -154,7 +166,8 @@ def model_eval(nr_of_batches = 1):
         print("start_seq:   ", start_seq.shape)
         print(start_seq)
 
-        outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) # (10, 128, 1, 5001)
+        outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
+        # outputs: (max_len, bs, 1, 5001)
 
         outputs = np.squeeze(outputs, axis = 2) # (max_len, bs, 1)
 

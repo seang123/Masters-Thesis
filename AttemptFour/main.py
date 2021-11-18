@@ -17,7 +17,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 1
+gpu_to_use = 2
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -65,6 +65,14 @@ print("len(shr_nsd_keys)", len(shr_nsd_keys))
 train_keys = nsd_keys
 val_keys = shr_nsd_keys
 
+print("mixing train and val sets")
+all_keys = np.concatenate((train_keys, val_keys))
+np.random.shuffle(all_keys)
+train_keys = all_keys[:9000]
+val_keys = all_keys[9000:]
+print("train_keys",train_keys.shape)
+print("val_keys", val_keys.shape)
+
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
@@ -106,15 +114,18 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = lc_NIC.NIC(
-        loader.get_groups(config['embedding_dim'])[0], 
-        loader.get_groups(config['embedding_dim'])[1],
+        loader.get_groups(config['embedding_features'])[0], 
+        loader.get_groups(config['embedding_features'])[1],
         config['units'], 
-        config['embedding_dim'], 
+        config['embedding_features'], 
+        config['embedding_text'],
+        config['attn_units'],
         vocab_size,
         config['max_length'],
         config['dropout_input'],
         config['dropout_features'],
         config['dropout_text'],
+        config['dropout_attn'],
         config['input_reg'],
         config['lstm_reg'],
         config['output_reg']
@@ -141,7 +152,7 @@ checkpoint_path_latest = f"{checkpoint_path}model-latest.h5"
 checkpoint_latest = ModelCheckpoint(
         checkpoint_path_latest,
         monitor='val_loss',
-        verbose=1, 
+        verbose=0, 
         save_weights_only = True, 
         save_best_only = False,
         mode = 'min',
@@ -162,6 +173,7 @@ reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patienc
 logdir = f"./tb_logs/scalars/{config['run']}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
+        update_freq='batch',
         #histogram_freq=1,
         #write_graph=True,
         #write_images=True,
@@ -225,20 +237,27 @@ def dotfit():
             config['units'],
             training=False
             )
-    #train_generator = tf.data.Dataset.from_generator(create_train_gen,
-    #        output_types=((np.float32, np.int32, np.float32, np.float32), np.int32))
-    #val_generator = tf.data.Dataset.from_generator(create_val_gen,
-    #        output_types=((np.float32, np.int32, np.float32, np.float32), np.int32, np.int32))
 
-
-    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, pre_load_betas=False, shuffle=True, training=True)
-    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, pre_load_betas=False, shuffle=True, training=True)
-
-    #start = time.time()
-    #for i in range(1):
-    #    x = train_generator[i]
-    #print(f"elapsed: {(time.time() - start):.2f}")
-    #raise
+    train_generator = generator.DataGenerator(
+            train_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            nsd_keys = train_keys,
+            pre_load_betas=False,
+            shuffle=True, training=True)
+    val_generator = generator.DataGenerator(
+            val_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            nsd_keys = val_keys,
+            pre_load_betas=False,
+            shuffle=True, training=True)
 
     model.fit(
             train_generator,

@@ -105,10 +105,10 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = guse_NIC.NIC(
-        loader.get_groups(config['embedding_dim'])[0], 
-        loader.get_groups(config['embedding_dim'])[1],
+        loader.get_groups(config['embedding_features'])[0], 
+        loader.get_groups(config['embedding_features'])[1],
         config['units'], 
-        config['embedding_dim'], 
+        config['embedding_features'], 
         vocab_size,
         config['max_length'],
         config['dropout_input'],
@@ -208,6 +208,7 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
+            nsd_keys = nsd_keys,
             pre_load_betas=False, 
             shuffle=True, 
             training=True)
@@ -218,6 +219,7 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
+            nsd_keys = shr_nsd_keys,
             pre_load_betas=False, 
             shuffle=True, 
             training=True)

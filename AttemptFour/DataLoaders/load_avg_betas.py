@@ -68,7 +68,6 @@ else:
 print("sum of groups sizes:", sum([len(g) for g in groups]))
 print("Avg. group size:    ", np.mean([len(g) for g in groups]))
 print("nr of groups        ", len([len(g) for g in groups]))
-print(len(groups))
 
 def get_groups(out_dim):
     return groups, [out_dim for i in range(len(groups))]

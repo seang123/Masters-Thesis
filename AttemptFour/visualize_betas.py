@@ -9,8 +9,8 @@ import numpy as np
 import nibabel as nb
 import cortex
 
-captions_path = "/huge/seagie/data/subj_2/captions/"
-betas_path    = "/huge/seagie/data/subj_2/betas_averaged/"
+captions_path = "/fast/seagie/data/subj_2/captions/"
+betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
 out_dir = "./Visualization"
 
 GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
@@ -54,6 +54,7 @@ for i, key in enumerate(shr_keys):
 betas_all = np.concatenate((betas_unq, betas_shr), axis=0)
 print("betas_all", betas_all.shape)
 
+raise
 #betas_sum = np.sum(betas_all, axis=0)
 #betas_mean = np.mean(betas_all, axis=0)
 
