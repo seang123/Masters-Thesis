@@ -33,7 +33,7 @@ tf.random.set_seed(config['seed'])
 
 ## Parameters
 vocab_size = config['top_k'] + 1
-batch_size = 5 # config['batch_size'] # 1 # TODO: .predict() doesnt seem to work with batch_size > 1
+batch_size = 20 # config['batch_size'] # 1 # TODO: .predict() doesnt seem to work with batch_size > 1
 
 
 if not os.path.exists(out_path):
@@ -97,6 +97,8 @@ print("data loaded successfully")
 model = lc_NIC.NIC(
         loader.get_groups(config['embedding_features'])[0],
         loader.get_groups(config['embedding_features'])[1],
+        #loader.get_groups(32)[0],
+        #loader.get_groups(32)[1],
         config['units'],
         config['embedding_features'], 
         config['embedding_text'],
@@ -122,6 +124,7 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
+#model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep013.h5"
 #model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep011.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
@@ -184,7 +187,7 @@ def model_eval(nr_of_batches = 1):
             print("Target:   ", target_sentences[k])
             print("NSD:", keys[k])
             
-            img = nsd_loader.read_images(int(keys[k]))
+            img = nsd_loader.read_images(int(keys[k])-1)
             fig = plt.figure()
             plt.imshow(img)
             plt.title(v)

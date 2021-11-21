@@ -45,21 +45,21 @@ class NIC(tf.keras.Model):
         self.dropout = Dropout(dropout)
         self.dropout_input = Dropout(dropout_input)
         self.dropout_text = Dropout(dropout_text)
-        self.dropout_attn = Dropout(dropout_attn)
+        #self.dropout_attn = Dropout(dropout_attn)
 
         #self.relu = ReLU()
 
         self.MSE = tf.keras.losses.MeanSquaredError()
         self.cos_sim = tf.keras.losses.CosineSimilarity() 
 
-        """
         # For locally connected and concated output
         self.dense_in = localDense.LocallyDense(
             in_groups,
             out_groups,
             embed_dim=embedding_features,
             dropout = self.dropout,
-            activation=self.relu,
+            #activation=self.relu,
+            activation=None,
             kernel_initializer=RandomUniform(-0.08, 0.08), #'he_normal',
             bias_initializer='zeros',
             kernel_regularizer=self.l2_in,
@@ -67,9 +67,8 @@ class NIC(tf.keras.Model):
             #kernel_constraint=tf.keras.constraints.MaxNorm(max_value=1), 
             #bias_constraint=tf.keras.constraints.MaxNorm(max_value=1),
         )
+
         """
-
-
         # When using attention
         self.dense_in = layers.LocallyDense(
             in_groups, 
@@ -88,6 +87,7 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
+        """
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
@@ -125,9 +125,12 @@ class NIC(tf.keras.Model):
         )
         loggerA.debug("Model initialized")
 
-
     def call(self, data, training=False):
-        """ Forward pass through the model with attention """
+        #return self.call_attention(data, training)
+        return self.call_lc(data, training)
+
+    def call_attention(self, data, training=False):
+        """ Forward pass | Attention model """
         img_input, text_input, a0, c0, _ = data
 
         img_input = self.dropout_input(img_input, training=training)
@@ -165,27 +168,10 @@ class NIC(tf.keras.Model):
         return output, features
 
 
-    def call_2(self, data, training=False):
-        """ Forward Pass
-        
-        Parameters
-        ----------
-            img_input : ndarray
-                the features (betas/CNN) (327684,)
-            text_input : ndarray
-                caption, integer encoded
-            a0 : ndarray
-                LSTM hidden state
-            c0 : ndarray
-                LSTM carry state
+    def call_lc(self, data, training=False):
+        """ Forward Pass | locally connected without attention """
 
-        Returns
-        -------
-            output : ndarray
-                a (batch_size, max_len, vocab_size) array holding predictions
-        """
-
-        img_input, text_input, a0, c0 = data
+        img_input, text_input, a0, c0, _ = data
 
         img_input = self.dropout_input(img_input, training=training)
 
@@ -231,8 +217,6 @@ class NIC(tf.keras.Model):
 
         target = data[1] # (batch_size, max_length, 5000)
         guse = data[0][-1]
-
-        print("train-step guse", guse.shape)
 
         l2_loss = 0
         cross_entropy_loss = 0
@@ -397,8 +381,38 @@ class NIC(tf.keras.Model):
         """
         return 1 - self.cosine_similarity(x, y)
 
+    def greedy_predict(self, *args, **kwargs):
+        #return self.greedy_predict_lc(*args, **kwargs)
+        return self.greedy_predict_attention(*args, **kwargs)
 
-    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
+    def greedy_predict_lc(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
+
+        # Betas Encoding 
+        features = self.dense_in(img_input, training=False) 
+        features = self.expand(features)
+
+        # Embed the caption vector
+        text = self.embedding(start_seq)
+        text = self.expand(text)
+
+        # Initial LSTM call with brain data
+        _, a, c = self.lstm(features, initial_state=[a0,c0], training=False)
+
+        outputs = []
+        for i in range(max_len):
+            A, a, c = self.lstm(text, initial_state=[a,c], training=False)
+            output = self.dense_out(A) # (bs, 1, 5001)
+
+            word = np.argmax(output, axis=-1)
+            # TODO: non-greedy
+            outputs.append(output)
+
+            # encode the new word
+            text = self.embedding(word)
+
+        return np.array(outputs)
+
+    def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator

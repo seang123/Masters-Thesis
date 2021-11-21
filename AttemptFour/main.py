@@ -114,8 +114,10 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = lc_NIC.NIC(
-        loader.get_groups(config['embedding_features'])[0], 
-        loader.get_groups(config['embedding_features'])[1],
+        #loader.get_groups(config['embedding_features'])[0], 
+        #loader.get_groups(config['embedding_features'])[1],
+        loader.get_groups(32)[0], 
+        loader.get_groups(32)[1],
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],

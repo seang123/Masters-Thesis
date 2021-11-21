@@ -16,7 +16,7 @@ subject = "subj02"
 n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
-captions_path = "/huge/seagie/data/subj_2/captions/"
+captions_path = "/fast/seagie/data/subj_2/captions/"
 betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
 guse_path = "/fast/seagie/data/subj_2/guse_averaged/"
 
@@ -114,7 +114,6 @@ class DataGenerator(keras.utils.Sequence):
             return ((betas_batch, cap_vector, init_state, init_state, guse_batch), target)
         else:
             return ((betas_batch, cap_vector, init_state, init_state, guse_batch), target, nsd_key)
-
 
 
 
