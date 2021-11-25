@@ -19,12 +19,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 np.random.seed(42)
 
-
-with open("./config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-    print(f"Config file loaded.")
-
-
 data_dir = '/huge/seagie/data_meaned/'
 nsd_dir = '/home/seagie/NSD2/'
 subject = "subj02"
@@ -44,7 +38,6 @@ glasser_lh = nb.load(GLASSER_LH).get_data()
 glasser_rh = nb.load(GLASSER_RH).get_data()
 
 glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
-
 
 print("glasser_lh", glasser_lh.shape)
 print("glasser_rh", glasser_rh.shape)
@@ -74,7 +67,7 @@ print("nr of groups        ", len([len(g) for g in groups]))
 
 def get_groups(out_dim):
     return groups[1:], [out_dim for i in range(1,len(groups))]
-    #return groups, [len(g)//100 for g in groups]
+    #return groups[1:], [len(g)//50 for g in groups[1:]]
 ## =====================
 
 def build_tokenizer(captions_path, top_k = 5000):
@@ -343,6 +336,10 @@ def lc_batch_generator(
 
 
 def main():
+
+    with open("./config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        print(f"Config file loaded.")
 
     start = time.time()
     tokenizer, _ = build_tokenizer(captions_path, config['top_k'])

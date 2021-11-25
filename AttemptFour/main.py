@@ -17,7 +17,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 2
+gpu_to_use = 0
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -114,10 +114,10 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = lc_NIC.NIC(
-        #loader.get_groups(config['embedding_features'])[0], 
-        #loader.get_groups(config['embedding_features'])[1],
-        loader.get_groups(32)[0], 
-        loader.get_groups(32)[1],
+        loader.get_groups(config['embedding_features'])[0], 
+        loader.get_groups(config['embedding_features'])[1],
+        #loader.get_groups(32)[0], 
+        #loader.get_groups(32)[1],
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],
@@ -128,7 +128,9 @@ model = lc_NIC.NIC(
         config['dropout_features'],
         config['dropout_text'],
         config['dropout_attn'],
+        config['dropout_lstm'],
         config['input_reg'],
+        config['attn_reg'],
         config['lstm_reg'],
         config['output_reg']
         )
@@ -248,7 +250,7 @@ def dotfit():
             config['max_length'], 
             vocab_size, 
             nsd_keys = train_keys,
-            pre_load_betas=False,
+            pre_load_betas=True,
             shuffle=True, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
@@ -258,7 +260,7 @@ def dotfit():
             config['max_length'], 
             vocab_size, 
             nsd_keys = val_keys,
-            pre_load_betas=False,
+            pre_load_betas=True,
             shuffle=True, training=True)
 
     model.fit(

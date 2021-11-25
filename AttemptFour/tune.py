@@ -1,5 +1,6 @@
 import argparse
 import os
+import numpy as np
 
 from filelock import FileLock
 
@@ -11,6 +12,7 @@ import yaml
 import tensorflow as tf
 from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
+from DataLoaders import data_generator_guse as generator
 from Callbacks import BatchLoss, EpochLoss, WarmupScheduler
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint
 from collections import defaultdict
@@ -20,7 +22,7 @@ from collections import defaultdict
     Creates an instance of the NIC model and trials several hp combinations
 """
 
-gpu_to_use = 1
+gpu_to_use = 0
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
@@ -42,16 +44,17 @@ if not os.path.exists(run_path):
 else:
     print(f"Training Log will be saved to: {run_path}")
 
+np.random.seed(config['seed'])
+tf.random.set_seed(config['seed'])
 
 vocab_size = config['top_k'] + 1
 
 tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
 
-nsd_keys, _ = loader.get_nsd_keys(config['dataset']['nsd_dir'])
-shr_nsd_keys = loader.get_shr_nsd_keys(config['dataset']['nsd_dir'])
+nsd_keys, shr_nsd_key = loader.get_nsd_keys(config['dataset']['nsd_dir'])
 
-train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
-val_keys = shr_nsd_keys
+train_keys = nsd_keys
+val_keys   = shr_nsd_key
 
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
@@ -59,17 +62,6 @@ val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_apirs  : {len(val_pairs)}")
 
-## Function to create a data generator instance
-create_generator = lambda pairs, units, training: loader.lc_batch_generator(pairs, 
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            units,
-            training=training
-        )
 print("data loaded successfully")
 
 
@@ -90,7 +82,7 @@ def train_NIC(tune_config):
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=tune_config['lr'], beta_1=0.9, beta_2=0.98, epsilon=10.0e-9,
             #clipvalue=tune_config['clipvalue'], 
-            clipnorm=tune_config['clipnorm'],
+            #clipnorm=tune_config['clipnorm'],
     )
     loss_object = tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
@@ -98,28 +90,53 @@ def train_NIC(tune_config):
     )
 
     units = tune_config['units']
-    embedding_dim = tune_config['embedding_dim']
+    group_size = tune_config['group_size']
 
     # Build model
     model = lc_NIC.NIC(
-            loader.get_groups(embedding_dim)[0],
-            loader.get_groups(embedding_dim)[1],
-            units,
-            embedding_dim,
+            #loader.get_groups(config['embedding_features'])[0], 
+            #loader.get_groups(config['embedding_features'])[1],
+            loader.get_groups(group_size)[0], 
+            loader.get_groups(group_size)[1],
+            tune_config['units'], 
+            tune_config['embedding_features'], 
+            tune_config['embedding_text'],
+            tune_config['attn_units'],
             vocab_size,
             config['max_length'],
-            tune_config['dropout_input'],
-            tune_config['dropout_features'],
-            tune_config['dropout_text'],
-            tune_config['l2_in'],
-            tune_config['l2_lstm'],
-            tune_config['l2_out']
+            config['dropout_input'],
+            config['dropout_features'],
+            config['dropout_text'],
+            config['dropout_attn'],
+            config['dropout_lstm'],
+            tune_config['input_reg'],
+            tune_config['attn_reg'],
+            tune_config['lstm_reg'],
+            tune_config['output_reg']
             )
     model.compile(optimizer, loss_object, run_eagerly=True)
 
-    # Init generators
-    train_generator = create_generator(train_pairs, units, True)
-    val_generator = create_generator(val_pairs, units, False)
+
+    train_generator = generator.DataGenerator(
+            train_pairs, 
+            tune_config['batch_size'], 
+            tokenizer, 
+            units,
+            config['max_length'], 
+            vocab_size, 
+            nsd_keys = train_keys,
+            pre_load_betas=False,
+            shuffle=True, training=True)
+    val_generator = generator.DataGenerator(
+            val_pairs, 
+            tune_config['batch_size'], 
+            tokenizer, 
+            units, 
+            config['max_length'], 
+            vocab_size, 
+            nsd_keys = val_keys,
+            pre_load_betas=False,
+            shuffle=True, training=True)
 
     model.fit(train_generator,
             epochs = tune_config['epochs'],
@@ -130,11 +147,12 @@ def train_NIC(tune_config):
             validation_steps = len(val_pairs)//config['batch_size'],
             initial_epoch = 0,
             callbacks=[TuneReportCallback({
-                "mean_loss": "loss",
-                "mean_val_loss": "val_loss",
-                "mean_l2": "L2",
-                "mean_accuracy": "accuracy",
-                "mean_val_accuracy": "val_accuracy"
+                "loss": "loss",
+                "val_loss": "val_loss",
+                "L2": "L2",
+                "val_l2": "val_L2",
+                "accuracy": "accuracy",
+                "val_accuracy": "val_accuracy"
             })]
     )
 
@@ -150,10 +168,10 @@ def tune_NIC(num_training_iterations):
 
     analysis = tune.run(
         train_NIC,
-        name="NIC_concat_lr",
+        name="NIC_locally_connected_fixed_idx",
         local_dir="./tb_logs/ray_results",
         scheduler=sched,
-        metric="mean_loss",
+        metric="loss",
         mode="min",
         stop={
             #"mean_loss": 1.0,
@@ -161,23 +179,28 @@ def tune_NIC(num_training_iterations):
         },
         num_samples=50,
         resources_per_trial={
-            "cpu": 3,
+            "cpu": 2,
             "gpu": 0.20,
         },
         config={
-            "batch_size": 128,
-            "epochs": 20,
-            "lr": tune.choice([0.001, 0.0001, 0.00001]),
-            "clipnorm": 0.2, #tune.loguniform(0.001, 1),
+            "batch_size": 64,
+            "epochs": 25,
+            "lr": tune.choice([0.001, 0.0001]),
+            "clipnorm": 0, # 0.2, #tune.loguniform(0.001, 1),
             "clipvalue": 0, #tune.loguniform(0.1, 100),
-            "embedding_dim": 64, #tune.choice([64, 128, 256]),
-            "units": 512, #tune.choice([512]),
-            "l2_in": 0.002, #tune.loguniform(0.00001, 1000),
-            "l2_lstm": 0.0003, #tune.loguniform(0.00001, 100),
-            "l2_out": 1.3e-5, #tune.loguniform(0.00001, 100), 
-            "dropout_features": tune.uniform(0, 0.8),
-            "dropout_input": tune.uniform(0, 0.5),
-            "dropout_text": tune.uniform(0, 0.5),
+            "embedding_features": 512, #tune.choice([64, 128, 256]),
+            "embedding_text": 512,
+            "units": tune.choice([256, 512, 1024]),
+            "attn_units": 64,
+            "group_size": tune.choice([32, 64]),
+            "input_reg": tune.loguniform(1.0e-5, 1),
+            "lstm_reg": tune.loguniform(1.0e-5, 1),
+            "output_reg": tune.loguniform(1.0e-5, 1), 
+            "attn_reg": tune.loguniform(1.0e-5, 1),
+            "dropout_features": 0, # tune.uniform(0, 0.8),
+            "dropout_input": 0, # tune.uniform(0, 0.5),
+            "dropout_text": 0, # tune.uniform(0, 0.5),
+            "dropout_attn": 0, # tune.uniform(0, 0.5),
         }
     )
     print("Best hyperparameters found were: ", analysis.best_config)

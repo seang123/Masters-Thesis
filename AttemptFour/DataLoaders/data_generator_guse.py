@@ -36,7 +36,8 @@ class DataGenerator(keras.utils.Sequence):
         self.pre_load_betas = pre_load_betas
 
         #self.guse = self.load_guse()
-        if pre_load_betas: self.betas = self.load_all_betas(nsd_keys)
+        if pre_load_betas: 
+            self.betas = self.load_all_betas(nsd_keys)
         self.on_epoch_end()
 
     def load_all_betas(self,keys):
@@ -47,6 +48,14 @@ class DataGenerator(keras.utils.Sequence):
 
         loggerA.info("betas loaded into memory")
         return betas
+
+    def load_all_guse(self, keys):
+        guse = np.zeros((keys.shape[0], 512), dtype=np.float32)
+        for i, key in enumerate(keys):
+            with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
+                guse[i,:] = np.load(g)
+        loggerA.info("GUSE loaded into memory")
+        return guse
     
     def load_guse(self):
         """ Load the guse embeddings into memory """
@@ -87,15 +96,17 @@ class DataGenerator(keras.utils.Sequence):
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
         guse_batch = np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
 
-        #if self.pre_load_betas: betas_batch = self.betas[count,:]
+        if self.pre_load_betas: 
+            betas_batch = self.betas[count,:]
+        """
         for i, key in enumerate(nsd_key):
             with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
                 betas_batch[i, :] = np.load(f)
             #else:
-            #betas_batch[i,:] = self.betas[count[i],:]
             #with open(f"{guse_path}/guse_embedding_KID{key}_CID{guse_key[i]}.npy", "rb") as g:
             with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
                 guse_batch[i,:] = np.load(g)
+        """
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32

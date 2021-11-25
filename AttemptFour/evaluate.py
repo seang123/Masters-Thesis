@@ -21,7 +21,9 @@ for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
-with open("./config.yaml", "r") as f:
+
+#with open("./config.yaml", "r") as f:
+with open("Log/attention_baseline/config.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded.")
 
@@ -77,7 +79,7 @@ create_generator = lambda pairs, training: loader.lc_batch_generator(pairs,
 
 #val_generator = create_generator(train_pairs, training=False)
 val_generator = generator.DataGenerator(
-        train_pairs, 
+        val_pairs, 
         batch_size, 
         tokenizer, 
         config['units'], 
@@ -124,7 +126,7 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
-#model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep013.h5"
+model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep013.h5"
 #model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep011.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
@@ -190,7 +192,7 @@ def model_eval(nr_of_batches = 1):
             img = nsd_loader.read_images(int(keys[k])-1)
             fig = plt.figure()
             plt.imshow(img)
-            plt.title(v)
+            plt.title(f"{v}\n{target_sentences[k]}")
             plt.savefig(f"{out_path}/img_{keys[k]}.png")
             plt.close(fig)
         

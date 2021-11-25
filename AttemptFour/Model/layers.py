@@ -35,7 +35,7 @@ class LocallyDense(tf.keras.layers.Layer):
         out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
 
         out = tf.convert_to_tensor(out)
-        out = tf.transpose(out, perm=[1,0,2])
+        out = tf.transpose(out, perm=[1,0,2]) # (bs, 41, dim)
 
         return out  
 

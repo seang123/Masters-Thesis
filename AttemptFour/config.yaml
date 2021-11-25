@@ -1,10 +1,9 @@
 ---
  # Name the current run
- run: locally_connected_fixed_guse
+ run: locally_connected_ray_search
 
  info: | 
-     previously forgot to update the guse embeddings with the fixed caption index
-     now it should be correct and the model should be able to actually learn proper guse embeddings
+     ray search on the locally connected no-attention model
 
  # Data stores
  dataset:
@@ -16,21 +15,22 @@
  seed: 42
 
  # Training
- epochs: 100
+ epochs: 20
  batch_size: 64
  max_length: 10
  optimizer: Adam
  alpha: 0.001
  decay: 0 #1.0e-4
 
- dropout_input: 0.1 # 0.17
- dropout_features: 0.4 # 0.18
- dropout_text: 0.3 # 0.01
- dropout_lstm: 0.5
- dropout_attn: 0.2
+ dropout_input: 0 # 0.17
+ dropout_features: 0 # 0.18
+ dropout_text: 0 # 0.01
+ dropout_lstm: 0
+ dropout_attn: 0
 
- input_reg: 1.0e-3 # 0.002         # scientific notation requires decimal notation - x.0e
- lstm_reg: 1.0e-3 # 0.0003 
+ input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
+ attn_reg: 0
+ lstm_reg: 0 # 0.0003 
  output_reg: 0 # 1.3e-5
 
  # Input size

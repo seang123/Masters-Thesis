@@ -70,13 +70,13 @@ def get_GUSE_embeddings(sem_dir, sentences, model=None):
 
 def create_single(keys):
     """ Create a single .npy file from all the separate guse files """
-    g = np.zeros((50000, 512))
+    g = np.zeros((10000, 5, 512))
     for i, key in enumerate(keys):
         for c in range(5):
-            with open(f"/huge/seagie/data/subj_2/guse/guse_embedding_KID{key}_CID{c}.npy", "rb") as f:
-                g[i * c, :] = np.load(f)
+            with open(f"/fast/seagie/data/subj_2/guse/guse_embedding_KID{key}_CID{c}.npy", "rb") as f:
+                g[i, c, :] = np.load(f)
                 
-    with open(f"/huge/seagie/data/subj_2/guse/guse_embeddings_flat.npy", "wb") as f:
+    with open(f"/fast/seagie/data/subj_2/guse/guse_embeddings_flat.npy", "wb") as f:
         np.save(f, g)
 
 def create_average(keys):
@@ -110,6 +110,8 @@ if __name__ == '__main__':
     sample_captions = get_captions(nsd_keys)  
     print("sample_captions", len(sample_captions))
 
+    create_single(nsd_keys)
+    raise 
 
     # Average the guse
     #create_average(nsd_keys)
