@@ -1,7 +1,9 @@
 from tensorflow.keras.callbacks import Callback
 import csv
 from contextlib import redirect_stdout 
+import logging
 
+loggerA = logging.getLogger(__name__ + '.batch-loss-callback')
 
 class BatchLoss(Callback):
 
@@ -29,6 +31,7 @@ class BatchLoss(Callback):
             with open(f'{self.summary_path}/modelsummary.txt', 'w') as f:
                 with redirect_stdout(f):
                     self.model.summary()
+                    loggerA.info(f"saving model summary to: {f.name}")
 
     def on_train_batch_end(self, batch, logs=None):
         if batch == 0:

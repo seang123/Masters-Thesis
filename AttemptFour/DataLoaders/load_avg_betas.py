@@ -14,15 +14,10 @@ from ian_code import nsd_get_data as ngd
 import yaml
 import nibabel as nb
 from concurrent.futures import ThreadPoolExecutor
+#from data_generator_guse import DataGenerator
 
 
 np.random.seed(42)
-
-
-with open("./config.yaml", "r") as f:
-    config = yaml.safe_load(f)
-    print(f"Config file loaded.")
-
 
 data_dir = '/huge/seagie/data_meaned/'
 nsd_dir = '/home/seagie/NSD2/'
@@ -30,8 +25,8 @@ subject = "subj02"
 n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
-captions_path = "/huge/seagie/data/subj_2/captions/"
-betas_path = "/huge/seagie/data/subj_2/betas_meaned/"
+captions_path = "/fast/seagie/data/subj_2/captions/"
+betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
 USE_ENTIRE_CORTEX = True
 
 ## ====== Glasser ======
@@ -46,6 +41,7 @@ glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
 
 print("glasser_lh", glasser_lh.shape)
 print("glasser_rh", glasser_rh.shape)
+print("glasser   ", glasser.shape)
 
 visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
 visual_parcel_list = list(visual_parcels.values.flatten())
@@ -70,8 +66,8 @@ print("Avg. group size:    ", np.mean([len(g) for g in groups]))
 print("nr of groups        ", len([len(g) for g in groups]))
 
 def get_groups(out_dim):
-    return groups, [out_dim for i in range(len(groups))]
-    #return groups, [len(g)//100 for g in groups]
+    return groups[1:], [out_dim for i in range(1,len(groups))]
+    #return groups[1:], [len(g)//50 for g in groups[1:]]
 ## =====================
 
 def build_tokenizer(captions_path, top_k = 5000):
@@ -136,6 +132,7 @@ def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list,
     assert len(unq) == 9000, "incorrect amount of unq keys"
     assert len(shrd) == 1000, "incorrect amount of shrd keys"
 
+    #return unq.values - 1, shrd.values - 1
     return unq.values, shrd.values
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
@@ -154,7 +151,7 @@ def create_pairs(keys: list, captions_path: str):
     Returns
     -------
         pairs : list
-            [NSD key, captions]
+            [NSD key, caption, caption id, key_idx]
     """
 
     pairs = []
@@ -179,11 +176,9 @@ def add_tokenized_cap_to_pair(pairs: list, tokenizer, max_len: int) -> list:
 
     new_pairs = []
     for pair in pairs:
-        key = pair[0]
-        cap = pair[1]
-        cap_seqs = tokenizer.texts_to_sequences([cap]) # int32
+        cap_seqs = tokenizer.texts_to_sequences([pair[1]]) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = len(cap.split(" ")), truncating = 'post', padding = 'post')
-        new_pairs.append( (key, cap, cap_vector[0]) )
+        new_pairs.append( (*pair, cap_vector[0]) )
 
     return new_pairs
 
@@ -342,6 +337,10 @@ def lc_batch_generator(
 
 def main():
 
+    with open("./config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+        print(f"Config file loaded.")
+
     start = time.time()
     tokenizer, _ = build_tokenizer(captions_path, config['top_k'])
     print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
@@ -364,11 +363,25 @@ def main():
     print("train_pairs:", len(train_pairs))
     print("val_pairs:  ", len(val_pairs))
 
-    lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+    #lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
 
-    start = time.time()
-    train_pairs = add_tokenized_cap_to_pair(train_pairs, tokenizer, max_len = 10)
-    print(f"Time to tokenize captions: {(time.time() - start):.2f}")
+    #start = time.time()
+    #train_pairs = add_tokenized_cap_to_pair(train_pairs, tokenizer, max_len = 10)
+    #print(f"Time to tokenize captions: {(time.time() - start):.2f}")
+
+    generator = DataGenerator(train_pairs,
+            batch_size = 32,
+            tokenizer = tokenizer,
+            units = 512,
+            max_len = 10,
+            vocab_size = 5001,
+            nsd_keys = nsd_keys,
+            pre_load_betas=False,
+            shuffle=True,
+            training=True)
+
+    x = generator[0]
+    print(x[0][0].shape)
 
     return
 

@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import LeakyReLU, ELU
 from tensorflow.keras.initializers import HeNormal
+from tensorflow.keras.regularizers import L2
 
 class LocallyDense(tf.keras.layers.Layer):
     '''
@@ -27,11 +28,12 @@ class LocallyDense(tf.keras.layers.Layer):
         '''
         super(LocallyDense, self).__init__()
 
-        self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
         self.input_groups = input_groups
 
+        self.dense_layers = [
+                tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
 
-        self.dense_2 = tf.keras.layers.Dense(embed_dim,
+        self.dense_2 = tf.keras.layers.Dense(512,
                 name='embed_dim',
                 **kwargs
         )
@@ -41,13 +43,19 @@ class LocallyDense(tf.keras.layers.Layer):
     def call(self, x, training=False):
         """ Forward pass """
         out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
-        #out = tf.convert_to_tensor(out) # (41, bs, embed_dim)
-        #out = tf.transpose(out, perm = [1,0,2]) # (bs, 41, embed_dim)
-        #out = tf.reduce_sum(out, axis=1)
 
+        """
+        ## Reduce sum method
+        out = tf.convert_to_tensor(out) # (41, bs, embed_dim)
+        out = tf.transpose(out, perm = [1,0,2]) # (bs, 41, embed_dim)
+        out = tf.reduce_mean(out, axis=1)
+        out = self.dropout(out)
+        """
+
+        ## concate method 
         out = tf.concat(out, axis=1)
         out = self.dropout(out)
-        out = self.dense_2(out, training=training) # (bs, embed_dim)
+        out = self.dense_2(out)
 
-        return out  
+        return out
 

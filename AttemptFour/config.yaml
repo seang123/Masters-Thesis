@@ -1,21 +1,21 @@
 ---
  # Name the current run
- run: debug_attention
+ run: locally_connected_ray_search
 
  info: | 
-     attention should be working properly now, lets see how it performs
+     ray search on the locally connected no-attention model
 
  # Data stores
  dataset:
      betas_path: "/fast/seagie/data/subj_2/betas_averaged/"
-     captions_path: "/huge/seagie/data/subj_2/captions/"
+     captions_path: "/fast/seagie/data/subj_2/captions/"
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
 
  seed: 42
 
  # Training
- epochs: 100
+ epochs: 20
  batch_size: 64
  max_length: 10
  optimizer: Adam
@@ -28,9 +28,10 @@
  dropout_lstm: 0
  dropout_attn: 0
 
- input_reg: 0.01 # 0.002         # scientific notation requires decimal notation - x.0e
- lstm_reg: 1.0e-8 # 0.0003 
- output_reg: 1.0e-8 # 1.3e-5
+ input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
+ attn_reg: 0
+ lstm_reg: 0 # 0.0003 
+ output_reg: 0 # 1.3e-5
 
  # Input size
  input: 
@@ -41,9 +42,9 @@
 
  # Model size 
  units: 512 # lstm
- attn_units: 32
+ attn_units: 64
  embedding_features: 512
- embedding_text: 256
+ embedding_text: 512
  top_k: 5000
 
 

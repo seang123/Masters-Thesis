@@ -59,6 +59,10 @@ for i in visual_parcel_list:
     groups.append(group)
 """
 
+# Remove group 0 which correspondes to some vertices along the corpus callosum 
+groups = groups[1:]
+
+
 ngroups = len(groups)
 group_size = [len(g) for g in groups]
 group_size.sort()
@@ -68,24 +72,44 @@ largest = group_size[-1]
 print("ngroups: ", ngroups)
 print("smallest:", smallest)
 print("largest: ", largest)
+print("avgerage:", np.mean(group_size))
+print("argmax : ", np.argmax(group_size))
+print("group sizes: ", group_size[-10:])
 
 fake_data = np.random.uniform(0, 1, (glasser.shape))
 
-visual_glasser = np.zeros(glasser.shape)
-visual_glasser.fill(np.nan)
-colour = 10
-for g in groups:
-    visual_glasser[g] = colour # fake_data[g] # colour
-    colour += 10
+glasser_regions = np.zeros(glasser.shape)
+#glasser_regions.fill(np.nan)
+colour = 0 #10
+for i, g in enumerate(groups):
+    glasser_regions[g] = colour # fake_data[g] # colour
+    colour += 1.4 #10
 
-vert = cortex.Vertex(visual_glasser, 'fsaverage')
+vert = cortex.Vertex(glasser_regions, 'fsaverage')
 im, extents = cortex.quickflat.make_flatmap_image(vert)
 
 
 fig = plt.figure()
-plt.imshow(im)
+plt.imshow(im, cmap=plt.get_cmap('viridis'))
 plt.savefig("./glasser.png")
 plt.close(fig)
 
 
+def all_regions():
+    """ Save an image showing every region separately """
+    colour = 10
+    for i, g in enumerate(groups):
+        glasser_regions = np.zeros(glasser.shape)
+        glasser_regions.fill(np.nan)
+        glasser_regions[g] = colour # fake_data[g] # colour
 
+        vert = cortex.Vertex(glasser_regions, 'fsaverage')
+        im, extents = cortex.quickflat.make_flatmap_image(vert)
+
+        fig = plt.figure()
+        plt.imshow(im, cmap=plt.get_cmap('inferno'))
+        plt.savefig(f"./glassers/region_i{i}_g{len(g)}.png")
+        plt.close(fig)
+        print(f"batch: {i}", end='\r')
+
+#all_regions()

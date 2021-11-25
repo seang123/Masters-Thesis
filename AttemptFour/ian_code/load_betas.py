@@ -25,7 +25,7 @@ stim_info_merged = pd.read_csv("/home/seagie/NSD2/nsddata/experiments/nsd/nsd_st
 #print(stim_info_merged.subject2.value_counts())
 
 
-data_dir = "/huge/seagie/data/"
+data_dir = "/fast/seagie/data/subj_2/"
 nsd_dir = "/home/seagie/NSD2/"
 subject = "subj02"
 n_sessions = 40
@@ -61,7 +61,7 @@ for k, v in enumerate(sample):
 # Save a csv file with the data of which trials the subject saw and which ones where unq and which shared
 df_dict = {'nsd_key': sample, 'is_shared': shared_idx}
 df = pd.DataFrame(data=df_dict)
-df.to_csv('../TrainData/subj02_conditions.csv', index=False)
+#df.to_csv('../TrainData/subj02_conditions.csv', index=False)
 
 #betas_mean_file_conditions = os.path.join(data_dir, f"{subject}_betas_{targetspace}_averaged_unq_sample.txt")
 #with open(betas_mean_file_conditions, "w") as f:
@@ -106,7 +106,7 @@ else:
     betas_mean = np.transpose(betas_mean, axes = [1,0])
     print("betas_mean new shape:", betas_mean.shape)
 
-    loc = f"{data_dir}/betas_averaged/"
+    loc = f"{data_dir}/betas_averaged_no_zscore/"
     if not os.path.exists(loc):
         os.makedirs(loc)
     for k, v in enumerate(sample):

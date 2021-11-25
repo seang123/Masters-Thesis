@@ -29,47 +29,38 @@ class NIC(tf.keras.Model):
     Not just visual cortex, but visual cortex split into 41 regions
     """
 
-    def __init__(self, in_groups, out_groups, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout, dropout_text, dropout_attn, input_reg, lstm_reg, output_reg):
-        """ Initialisation method. Builds the keras.Model
-        Parameters
-        ----------
-        """
+    def __init__(self, in_groups, out_groups, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout_features, dropout_text, dropout_attn, dropout_lstm, input_reg, attn_reg, lstm_reg, output_reg):
+        """ Initialisation method. Builds the keras.Model """
         super(NIC, self).__init__()
 
 
         # L2 Regularizers
         self.l2_in = L2(input_reg)
-        self.l2_attn = L2(0)
+        self.l2_attn = L2(attn_reg)
         self.l2_lstm = L2(lstm_reg)
         self.l2_out = L2(output_reg)
-        self.dropout = Dropout(dropout)
         self.dropout_input = Dropout(dropout_input)
+        self.dropout = Dropout(dropout_features)
         self.dropout_text = Dropout(dropout_text)
-        self.dropout_attn = Dropout(dropout_attn)
 
         #self.relu = ReLU()
+        #self.MSE = tf.keras.losses.MeanSquaredError()
+        #self.cos_sim = tf.keras.losses.CosineSimilarity() 
 
-        self.MSE = tf.keras.losses.MeanSquaredError()
-        self.cos_sim = tf.keras.losses.CosineSimilarity() 
-
-        """
         # For locally connected and concated output
         self.dense_in = localDense.LocallyDense(
             in_groups,
             out_groups,
             embed_dim=embedding_features,
             dropout = self.dropout,
-            activation=self.relu,
+            activation=None,
             kernel_initializer=RandomUniform(-0.08, 0.08), #'he_normal',
             bias_initializer='zeros',
             kernel_regularizer=self.l2_in,
-            #activity_regularizer=self.l2_in,
-            #kernel_constraint=tf.keras.constraints.MaxNorm(max_value=1), 
-            #bias_constraint=tf.keras.constraints.MaxNorm(max_value=1),
         )
+
         """
-
-
+        self.dropout_attn = Dropout(dropout_attn)
         # When using attention
         self.dense_in = layers.LocallyDense(
             in_groups, 
@@ -88,6 +79,7 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
+        """
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
@@ -107,7 +99,7 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_lstm,
             #kernel_initializer=RandomUniform(-0.08, 0.08),
             #recurrent_initializer=RandomUniform(-0.08, 0.08),
-            dropout=dropout,
+            dropout=dropout_lstm,
             name = 'lstm'
         )
 
@@ -117,7 +109,6 @@ class NIC(tf.keras.Model):
                 vocab_size,
                 activation='softmax',
                 kernel_regularizer=self.l2_out,
-                #kernel_initializer=RandomUniform(-0.08,0.08),
                 kernel_initializer=GlorotNormal(),
                 bias_initializer='zeros',
             ),
@@ -125,9 +116,12 @@ class NIC(tf.keras.Model):
         )
         loggerA.debug("Model initialized")
 
-
     def call(self, data, training=False):
-        """ Forward pass through the model with attention """
+        #return self.call_attention(data, training)
+        return self.call_lc(data, training)
+
+    def call_attention(self, data, training=False):
+        """ Forward pass | Attention model """
         img_input, text_input, a0, c0, _ = data
 
         img_input = self.dropout_input(img_input, training=training)
@@ -165,27 +159,10 @@ class NIC(tf.keras.Model):
         return output, features
 
 
-    def call_2(self, data, training=False):
-        """ Forward Pass
-        
-        Parameters
-        ----------
-            img_input : ndarray
-                the features (betas/CNN) (327684,)
-            text_input : ndarray
-                caption, integer encoded
-            a0 : ndarray
-                LSTM hidden state
-            c0 : ndarray
-                LSTM carry state
+    def call_lc(self, data, training=False):
+        """ Forward Pass | locally connected without attention """
 
-        Returns
-        -------
-            output : ndarray
-                a (batch_size, max_len, vocab_size) array holding predictions
-        """
-
-        img_input, text_input, a0, c0 = data
+        img_input, text_input, a0, c0, _ = data
 
         img_input = self.dropout_input(img_input, training=training)
 
@@ -211,7 +188,7 @@ class NIC(tf.keras.Model):
         # Convert to vocab
         output = self.dense_out(A, training=training)
 
-        return output, features
+        return output
 
 
     @tf.function()
@@ -232,8 +209,6 @@ class NIC(tf.keras.Model):
         target = data[1] # (batch_size, max_length, 5000)
         guse = data[0][-1]
 
-        print("train-step guse", guse.shape)
-
         l2_loss = 0
         cross_entropy_loss = 0
         accuracy = 0
@@ -246,20 +221,21 @@ class NIC(tf.keras.Model):
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            prediction, feat_embed = self(
+            prediction = self(
                     (
                         data[0]
                     ), 
                     training=True
             ) # (bs, max-length, vocab_size)
 
-            # GUSE loss
-            #for i in range(0, feat_embed.shape[1]):
-            #    guse_loss += self.MSE(guse, feat_embed[:,i,:])
-            guse_loss = self.MSE(guse, tf.reduce_mean(feat_embed, axis=1))
-            #guse_loss = self.cosine_loss(guse, tf.reduce_mean(feat_embed, axis=1))
-            guse_sim = self.cos_sim(guse, tf.reduce_mean(feat_embed, axis=1))
 
+            # GUSE loss
+
+            prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
+            target = tf.reshape(target, (-1, target.shape[2]))
+            cross_entropy_loss = self.loss_function(target, prediction)
+            accuracy = self.accuracy_calculation(target, prediction)
+            """
             # Cross-entropy loss & Accuracy
             for i in range(0, target.shape[1]):
                 cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
@@ -268,6 +244,7 @@ class NIC(tf.keras.Model):
             # Normalise across sentence length
             cross_entropy_loss /= int(target.shape[1])
             accuracy /= int(target.shape[1])
+            """
 
             # capture regularization losses
             l2_loss = tf.add_n(self.losses)
@@ -275,7 +252,6 @@ class NIC(tf.keras.Model):
             # Sum losses for backprop
             total_loss += cross_entropy_loss
             total_loss += l2_loss
-            total_loss += guse_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
@@ -298,7 +274,7 @@ class NIC(tf.keras.Model):
         #    #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
         #    #cc += 1
 
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy, "guse":guse_loss, "guse_sim": guse_sim}#, grad_sum
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
 
     @tf.function
     def test_step(self, data):
@@ -325,7 +301,7 @@ class NIC(tf.keras.Model):
         guse_sim  = 0
 
         # Call model on sample
-        prediction, feat_embed = self(
+        prediction = self(
                 (
                     data[0]
                 ),
@@ -333,13 +309,13 @@ class NIC(tf.keras.Model):
         )
 
         # GUSE loss
-        #guse_loss += self.MSE(guse, feat_embed[:,0,:])
-        #for i in range(0, feat_embed.shape[1]):
-        #    guse_loss += self.MSE(guse, feat_embed[:,i,:])
-        guse_loss = self.MSE(guse, tf.reduce_mean(feat_embed, axis=1))
-        #guse_loss = self.cosine_loss(guse, tf.reduce_mean(feat_embed, axis=1))
-        guse_sim = self.cos_sim(guse, tf.reduce_mean(feat_embed, axis=1))
 
+        prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
+        target = tf.reshape(target, (-1, target.shape[2]))
+        cross_entropy_loss = self.loss_function(target, prediction)
+        accuracy = self.accuracy_calculation(target, prediction)
+
+        """
         # Cross-entropy & Accuracy
         for i in range(0, target.shape[1]):
             cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
@@ -348,11 +324,12 @@ class NIC(tf.keras.Model):
         # Normalise across sentence length 
         cross_entropy_loss /= int(target.shape[1])
         accuracy /= int(target.shape[1])
+        """
 
         # Regularization losses
         l2_loss = tf.add_n(self.losses)
 
-        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy, "guse":guse_loss, "guse_sim": guse_sim}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
 
     @tf.function
     def loss_function(self, real, pred):
@@ -397,8 +374,38 @@ class NIC(tf.keras.Model):
         """
         return 1 - self.cosine_similarity(x, y)
 
+    def greedy_predict(self, *args, **kwargs):
+        #return self.greedy_predict_lc(*args, **kwargs)
+        return self.greedy_predict_attention(*args, **kwargs)
 
-    def greedy_predict(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
+    def greedy_predict_lc(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
+
+        # Betas Encoding 
+        features, latent = self.dense_in(img_input, training=False) 
+        features = self.expand(features)
+
+        # Embed the caption vector
+        text = self.embedding(start_seq)
+        text = self.expand(text)
+
+        # Initial LSTM call with brain data
+        _, a, c = self.lstm(features, initial_state=[a0,c0], training=False)
+
+        outputs = []
+        for i in range(max_len):
+            A, a, c = self.lstm(text, initial_state=[a,c], training=False)
+            output = self.dense_out(A) # (bs, 1, 5001)
+
+            word = np.argmax(output, axis=-1)
+            # TODO: non-greedy
+            outputs.append(output)
+
+            # encode the new word
+            text = self.embedding(word)
+
+        return np.array(outputs)
+
+    def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator
