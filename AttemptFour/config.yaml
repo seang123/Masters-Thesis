@@ -1,9 +1,9 @@
 ---
  # Name the current run
- run: locally_connected_ray_search
+ run: attention_best
 
  info: | 
-     ray search on the locally connected no-attention model
+     based on ray-serach
 
  # Data stores
  dataset:
@@ -15,7 +15,7 @@
  seed: 42
 
  # Training
- epochs: 20
+ epochs: 100
  batch_size: 64
  max_length: 10
  optimizer: Adam
@@ -28,10 +28,10 @@
  dropout_lstm: 0
  dropout_attn: 0
 
- input_reg: 0 # 0.002         # scientific notation requires decimal notation - x.0e
- attn_reg: 0
- lstm_reg: 0 # 0.0003 
- output_reg: 0 # 1.3e-5
+ input_reg: 0.01 # 0.002         # scientific notation requires decimal notation - x.0e
+ attn_reg: 0.01
+ lstm_reg: 0.00003 # 0.0003 
+ output_reg: 0.00001 # 1.3e-5
 
  # Input size
  input: 
@@ -42,7 +42,7 @@
 
  # Model size 
  units: 512 # lstm
- attn_units: 64
+ attn_units: 32
  embedding_features: 512
  embedding_text: 512
  top_k: 5000

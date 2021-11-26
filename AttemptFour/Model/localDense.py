@@ -54,8 +54,8 @@ class LocallyDense(tf.keras.layers.Layer):
 
         ## concate method 
         out = tf.concat(out, axis=1)
-        out = self.dropout(out)
-        out = self.dense_2(out)
+        out = self.dropout(out, training=training)
+        out = self.dense_2(out, training=training)
 
         return out
 

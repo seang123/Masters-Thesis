@@ -16,6 +16,7 @@ from tensorflow_addons import seq2seq
 from . import layers
 from . import attention
 from . import localDense
+from . import convDense
 import sys
 import numpy as np
 from collections import defaultdict
@@ -47,6 +48,19 @@ class NIC(tf.keras.Model):
         #self.MSE = tf.keras.losses.MeanSquaredError()
         #self.cos_sim = tf.keras.losses.CosineSimilarity() 
 
+        """
+        self.dense_in = convDense.LocallyDense(
+                in_groups,
+                out_groups,
+                embed_dim=embedding_features,
+                dropout=self.dropout,
+                activation=None,
+                kernel_initializer='he_normal',
+                kernel_regularizer=self.l2_in,
+        )
+        """
+
+        """
         # For locally connected and concated output
         self.dense_in = localDense.LocallyDense(
             in_groups,
@@ -58,8 +72,8 @@ class NIC(tf.keras.Model):
             bias_initializer='zeros',
             kernel_regularizer=self.l2_in,
         )
-
         """
+
         self.dropout_attn = Dropout(dropout_attn)
         # When using attention
         self.dense_in = layers.LocallyDense(
@@ -79,7 +93,6 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
-        """
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
@@ -117,8 +130,8 @@ class NIC(tf.keras.Model):
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
-        #return self.call_attention(data, training)
-        return self.call_lc(data, training)
+        return self.call_attention(data, training)
+        #return self.call_lc(data, training)
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
@@ -156,7 +169,7 @@ class NIC(tf.keras.Model):
         # Convert to vocab
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
-        return output, features
+        return output
 
 
     def call_lc(self, data, training=False):

@@ -40,7 +40,7 @@ class DataGenerator(keras.utils.Sequence):
             self.betas = self.load_all_betas(nsd_keys)
         self.on_epoch_end()
 
-    def load_all_betas(self,keys):
+    def load_all_betas(self, keys):
         betas = np.zeros((keys.shape[0], 327684), dtype=np.float32)
         for i, key in enumerate(keys):
             with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
@@ -49,24 +49,9 @@ class DataGenerator(keras.utils.Sequence):
         loggerA.info("betas loaded into memory")
         return betas
 
-    def load_all_guse(self, keys):
-        guse = np.zeros((keys.shape[0], 512), dtype=np.float32)
-        for i, key in enumerate(keys):
-            with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
-                guse[i,:] = np.load(g)
-        loggerA.info("GUSE loaded into memory")
-        return guse
-    
-    def load_guse(self):
-        """ Load the guse embeddings into memory """
-        loggerA.info("guse embeddings loaded")
-        return np.load(open(f"{guse_path}/guse_embeddings_flat.npy", "rb"))
-
-
     def __len__(self):
         """ Nr. of batches per epoch """
         return len(self.pairs)//self.batch_size
-
 
     def on_epoch_end(self):
         """ Shuffle data when epoch ends """

@@ -60,7 +60,7 @@ train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path']
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
 print(f"train_pairs: {len(train_pairs)}")
-print(f"val_apirs  : {len(val_pairs)}")
+print(f"val_pairs  : {len(val_pairs)}")
 
 print("data loaded successfully")
 
@@ -90,6 +90,7 @@ def train_NIC(tune_config):
     )
 
     units = tune_config['units']
+    embedding_dim = tune_config['embedding_dim']
     group_size = tune_config['group_size']
 
     # Build model
@@ -99,8 +100,8 @@ def train_NIC(tune_config):
             loader.get_groups(group_size)[0], 
             loader.get_groups(group_size)[1],
             tune_config['units'], 
-            tune_config['embedding_features'], 
-            tune_config['embedding_text'],
+            embedding_dim, #tune_config['embedding_features'], 
+            embedding_dim, #tune_config['embedding_text'],
             tune_config['attn_units'],
             vocab_size,
             config['max_length'],
@@ -168,7 +169,7 @@ def tune_NIC(num_training_iterations):
 
     analysis = tune.run(
         train_NIC,
-        name="NIC_locally_connected_fixed_idx",
+        name="NIC_attention_fixed_idx",
         local_dir="./tb_logs/ray_results",
         scheduler=sched,
         metric="loss",
@@ -177,22 +178,23 @@ def tune_NIC(num_training_iterations):
             #"mean_loss": 1.0,
             "training_iteration": num_training_iterations
         },
-        num_samples=50,
+        num_samples=100,
         resources_per_trial={
             "cpu": 2,
             "gpu": 0.20,
         },
         config={
             "batch_size": 64,
-            "epochs": 25,
-            "lr": tune.choice([0.001, 0.0001]),
+            "epochs": 30,
+            "lr": 0.001, # tune.choice([0.001, 0.0001]),
             "clipnorm": 0, # 0.2, #tune.loguniform(0.001, 1),
             "clipvalue": 0, #tune.loguniform(0.1, 100),
-            "embedding_features": 512, #tune.choice([64, 128, 256]),
-            "embedding_text": 512,
-            "units": tune.choice([256, 512, 1024]),
-            "attn_units": 64,
-            "group_size": tune.choice([32, 64]),
+            "group_size": 32, # tune.choice([32, 64]),
+            #"embedding_features": 512, #tune.choice([64, 128, 256]),
+            #"embedding_text": 512,
+            "embedding_dim": tune.choice([128, 256, 512]),
+            "units": 512, # tune.choice([256, 512, 1024]),
+            "attn_units": tune.choice([8, 16, 32]),
             "input_reg": tune.loguniform(1.0e-5, 1),
             "lstm_reg": tune.loguniform(1.0e-5, 1),
             "output_reg": tune.loguniform(1.0e-5, 1), 

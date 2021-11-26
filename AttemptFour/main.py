@@ -65,16 +65,9 @@ print("len(shr_nsd_keys)", len(shr_nsd_keys))
 train_keys = nsd_keys
 val_keys = shr_nsd_keys
 
-print("mixing train and val sets")
-all_keys = np.concatenate((train_keys, val_keys))
-np.random.shuffle(all_keys)
-train_keys = all_keys[:9000]
-val_keys = all_keys[9000:]
-print("train_keys",train_keys.shape)
-print("val_keys", val_keys.shape)
-
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
+
 
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
@@ -114,10 +107,10 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = lc_NIC.NIC(
-        loader.get_groups(config['embedding_features'])[0], 
-        loader.get_groups(config['embedding_features'])[1],
-        #loader.get_groups(32)[0], 
-        #loader.get_groups(32)[1],
+        #loader.get_groups(config['embedding_features'])[0], 
+        #loader.get_groups(config['embedding_features'])[1],
+        loader.get_groups(32)[0], 
+        loader.get_groups(32)[1],
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],
