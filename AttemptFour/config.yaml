@@ -1,14 +1,15 @@
 ---
  # Name the current run
- run: attention_best
+ run: test_concurrent_loader
 
  info: | 
-     based on ray-serach
+     Fit locally connected network to vgg16 latent space with MSE loss
 
  # Data stores
  dataset:
      betas_path: "/fast/seagie/data/subj_2/betas_averaged/"
      captions_path: "/fast/seagie/data/subj_2/captions/"
+     vgg16_path: "/fast/seagie/data/subj_2/vgg16/"
      nsd_dir: "/home/seagie/NSD2"
  log: "./Log/"
 

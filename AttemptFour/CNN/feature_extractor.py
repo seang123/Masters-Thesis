@@ -56,7 +56,7 @@ train_features = np.zeros((9000, 4096), dtype=np.float32)
 test_features  = np.zeros((1000, 4096), dtype=np.float32)
 
 
-batch_size = 32
+batch_size = 5
 ## Train set
 for i in tqdm.tqdm(range(0, len(nsd_keys), batch_size)):
     keys = nsd_keys[i:i+batch_size] 
@@ -88,11 +88,11 @@ shr_nsd_keys = shr_nsd_keys + 1
 
 for i, key in enumerate(nsd_keys):
     with open(f"/fast/seagie/data/subj_2/vgg16/SUB2_KID{key}.npy", "wb") as f:
-        np.save(f, train_features)
+        np.save(f, train_features[i])
 print("training set saved ")
 for i, key in enumerate(shr_nsd_keys):
     with open(f"/fast/seagie/data/subj_2/vgg16/SUB2_KID{key}.npy", "wb") as f:
-        np.save(f, test_features)
+        np.save(f, test_features[i])
 print("validation set saved ")
 
 

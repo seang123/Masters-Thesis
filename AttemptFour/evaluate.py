@@ -8,12 +8,15 @@ import time
 import os, sys
 import tensorflow as tf
 import numpy as np
+import tqdm
 from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
 from DataLoaders import data_generator_guse as generator
 from nsd_access import NSDAccess
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu, corpus_bleu
+from tabulate import tabulate
 
-gpu_to_use = 2
+gpu_to_use = 0
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -23,7 +26,7 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
 #with open("./config.yaml", "r") as f:
-with open("Log/attention_baseline/config.yaml", "r") as f:
+with open("./Log/attention_best2_lr_sched/config.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded.")
 
@@ -35,8 +38,7 @@ tf.random.set_seed(config['seed'])
 
 ## Parameters
 vocab_size = config['top_k'] + 1
-batch_size = 20 # config['batch_size'] # 1 # TODO: .predict() doesnt seem to work with batch_size > 1
-
+batch_size = 32
 
 if not os.path.exists(out_path):
     os.makedirs(out_path)
@@ -52,40 +54,30 @@ nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
 
 train_keys = nsd_keys
 val_keys = shr_nsd_keys
-print("mixing train and val sets")
-all_keys = np.concatenate((train_keys, val_keys))
-np.random.shuffle(all_keys)
-train_keys = all_keys[:9000]
-val_keys = all_keys[9000:]
-print("train_keys",train_keys.shape)
-print("val_keys", val_keys.shape)
 
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
+def remove_dup_pairs(pairs):
+    """ Remove duplicates from the pairs list, based on NSD key """
+    print("Removing duplicates from pairs list ... ")
+    return list({v[0]:v for v in pairs}.values())
+
+train_pairs = remove_dup_pairs(train_pairs)
+val_pairs   = remove_dup_pairs(val_pairs)
+
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
 
-create_generator = lambda pairs, training: loader.lc_batch_generator(pairs,
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            batch_size,
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training = training,
-        )
-
 #val_generator = create_generator(train_pairs, training=False)
 val_generator = generator.DataGenerator(
-        val_pairs, 
+        val_pairs,
         batch_size, 
         tokenizer, 
         config['units'], 
         config['max_length'], 
         vocab_size, 
-        nsd_keys = train_keys, 
+        nsd_keys = val_keys, # Make sure this matches parameter 0 (pairs)
         pre_load_betas=False,
         shuffle=True, 
         training=False)
@@ -97,10 +89,10 @@ print("data loaded successfully")
 
 ## Set-up model
 model = lc_NIC.NIC(
-        loader.get_groups(config['embedding_features'])[0],
-        loader.get_groups(config['embedding_features'])[1],
-        #loader.get_groups(32)[0],
-        #loader.get_groups(32)[1],
+        #loader.get_groups(config['embedding_features'])[0],
+        #loader.get_groups(config['embedding_features'])[1],
+        loader.get_groups(32)[0],
+        loader.get_groups(32)[1],
         config['units'],
         config['embedding_features'], 
         config['embedding_text'],
@@ -111,7 +103,9 @@ model = lc_NIC.NIC(
         config['dropout_features'],
         config['dropout_text'],
         config['dropout_attn'],
+        config['dropout_lstm'],
         config['input_reg'],
+        config['attn_reg'],
         config['lstm_reg'],
         config['output_reg']
         )
@@ -126,7 +120,7 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
-model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep013.h5"
+model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep021.h5"
 #model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep011.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
@@ -134,6 +128,9 @@ model.load_weights(model_dir,by_name=True,skip_mismatch=True)
 print(f"Model weights loaded")
 print(f" - from {model_dir}")
 
+nsd_loader = NSDAccess("/home/seagie/NSD")
+nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
+print("NSDAccess loader initialized ... ")
 
 def targets_to_sentences(targets: np.array) -> list:
     """ Returns a list of target sentences
@@ -146,6 +143,86 @@ def targets_to_sentences(targets: np.array) -> list:
         sentence : [string]
     """
     return tokenizer.sequences_to_texts(np.argmax(targets, axis=2))
+
+
+def compute_bleu(candidate):
+    """ Compute the blue score for a given candidate and its reference nsd key """
+
+    caption, key = candidate
+
+    weights = [
+        (1, 0, 0, 0),(0, 1, 0, 0),(0, 0, 1, 0),(0, 0, 0, 1),
+        (1./1., 0, 0, 0),
+        (1./2., 1./2., 0, 0),
+        (1./3., 1./3., 1./3., 0),
+        (1./4., 1./4., 1./4., 1./4.)     
+    ]
+
+    chencherry = SmoothingFunction()
+
+    # get reference set
+    #references = [i['caption'] for i in nsd_loader.read_image_coco_info([int(keys[i])-1])]
+    references = []
+    with open(f"{config['dataset']['captions_path']}/SUB2_KID{key}.txt", "r") as f:
+        content = f.read()
+        for line in content.splitlines():
+            cap = line.replace(".", " ")
+            cap = cap.replace(",", " ")
+            cap = cap.strip()
+            cap = cap.split(" ")
+            cap = [i.lower() for i in cap]
+            cap = cap + ['<end>']
+            references.append(cap)
+
+    bleus = []
+    for w in weights:
+        bleus.append( sentence_bleu(references, caption.split(" "), weights=w, smoothing_function=chencherry.method4) )
+    return bleus
+    
+
+def eval_full_set():
+    """ Evaluate the model the entire validation set """
+    nsd_loader = NSDAccess("/home/seagie/NSD")
+    nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
+
+    bleu_scores = []
+    candidates = []
+    for i in tqdm.tqdm(range(0, len(val_generator)+1)):
+        sample = val_generator[i]
+        features, _, a0, c0, _ = sample[0]
+        target = sample[1]
+        keys = sample[2]
+
+        ## Create start word
+        start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
+
+        ## Call model
+        outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
+        # outputs: (max_len, bs, 1, 5001)
+
+        outputs = np.squeeze(outputs, axis = 2) # (max_len, bs, 1)
+
+        captions = np.argmax(outputs, axis = 2) # (max_len, bs)
+        captions = np.transpose(captions, axes=[1,0]) # (bs, max_len)
+        captions = tokenizer.sequences_to_texts(captions)
+
+        # Convert one-hot targets to captions
+        target_sentences = targets_to_sentences(target) 
+        
+        for i, v in enumerate(captions):
+            candidates.append( (v, keys[i]) )
+        #candidates.append( list(zip(target_sentences, keys)) )
+
+    print("len cand:", len(candidates))
+
+    for i, cand in enumerate(candidates):
+        bleu_scores.append( compute_bleu(cand) )
+
+    bleu_scores = np.array(bleu_scores)
+
+    table = [["Individual", np.mean(bleu_scores[:,0]), np.mean(bleu_scores[:,1]), np.mean(bleu_scores[:,2]), np.mean(bleu_scores[:,3])],
+            ["Cumulative", np.mean(bleu_scores[:,4]), np.mean(bleu_scores[:,5]), np.mean(bleu_scores[:,6]), np.mean(bleu_scores[:,7])]]
+    print(tabulate(table, headers=['BLEU-1', 'BLEU-2', 'BLEU-3', 'BLEU-4']))
     
 
 def model_eval(nr_of_batches = 1):
@@ -156,8 +233,6 @@ def model_eval(nr_of_batches = 1):
         - prints the produced candidate caption + its target caption for a given input
         - Saves the relevant NSD images together with the candidate caption 
     """
-    nsd_loader = NSDAccess("/home/seagie/NSD")
-    nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
 
 
     for i in range(nr_of_batches):
@@ -168,8 +243,6 @@ def model_eval(nr_of_batches = 1):
         keys = sample[2]
 
         start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
-        print("start_seq:   ", start_seq.shape)
-        print(start_seq)
 
         outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
         # outputs: (max_len, bs, 1, 5001)
@@ -179,6 +252,8 @@ def model_eval(nr_of_batches = 1):
         captions = np.argmax(outputs, axis = 2) # (max_len, bs)
         captions = np.transpose(captions, axes=[1,0]) # (bs, max_len)
         captions = tokenizer.sequences_to_texts(captions)
+
+        # TODO: Remove everything after <end> token
 
         # Convert one-hot targets to captions
         target_sentences = targets_to_sentences(target) 
@@ -202,7 +277,8 @@ def model_eval(nr_of_batches = 1):
 
 if __name__ == '__main__':
     nr_batchs = 1
-    model_eval(nr_batchs)
+    #model_eval(nr_batchs)
+    eval_full_set()
 
 
 

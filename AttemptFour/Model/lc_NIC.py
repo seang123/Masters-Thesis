@@ -45,7 +45,7 @@ class NIC(tf.keras.Model):
         self.dropout_text = Dropout(dropout_text)
 
         #self.relu = ReLU()
-        #self.MSE = tf.keras.losses.MeanSquaredError()
+        self.MSE = tf.keras.losses.MeanSquaredError()
         #self.cos_sim = tf.keras.losses.CosineSimilarity() 
 
         """
@@ -60,26 +60,25 @@ class NIC(tf.keras.Model):
         )
         """
 
-        """
         # For locally connected and concated output
         self.dense_in = localDense.LocallyDense(
             in_groups,
             out_groups,
             embed_dim=embedding_features,
             dropout = self.dropout,
-            activation=None,
+            activation=LeakyReLU(0.2),
             kernel_initializer=RandomUniform(-0.08, 0.08), #'he_normal',
             bias_initializer='zeros',
             kernel_regularizer=self.l2_in,
         )
-        """
 
+        """
         self.dropout_attn = Dropout(dropout_attn)
         # When using attention
         self.dense_in = layers.LocallyDense(
             in_groups, 
             out_groups, 
-            activation=None,
+            activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
@@ -87,12 +86,13 @@ class NIC(tf.keras.Model):
 
         self.attention = attention.Attention(
             units = attn_units,
-            #use_bias = True,
             dropout = self.dropout_attn,
+            activation=LeakyReLU(0.2),
             kernel_initializer=GlorotNormal(),
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
+        """
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
@@ -130,8 +130,8 @@ class NIC(tf.keras.Model):
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
-        return self.call_attention(data, training)
-        #return self.call_lc(data, training)
+        #return self.call_attention(data, training)
+        return self.call_lc(data, training)
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
@@ -180,7 +180,7 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Betas Encoding 
-        features = self.dense_in(img_input, training=training) 
+        features, latent = self.dense_in(img_input, training=training) 
         features = self.dropout(features, training=training)
         # Attend to embeddings
         #features = self.attention(features, training)
@@ -201,7 +201,7 @@ class NIC(tf.keras.Model):
         # Convert to vocab
         output = self.dense_out(A, training=training)
 
-        return output
+        return output, latent
 
 
     @tf.function()
@@ -225,8 +225,7 @@ class NIC(tf.keras.Model):
         l2_loss = 0
         cross_entropy_loss = 0
         accuracy = 0
-        guse_loss = 0
-        guse_sim = 0
+        latent_loss = 0
         total_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
@@ -234,7 +233,7 @@ class NIC(tf.keras.Model):
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            prediction = self(
+            prediction, latent = self(
                     (
                         data[0]
                     ), 
@@ -242,7 +241,8 @@ class NIC(tf.keras.Model):
             ) # (bs, max-length, vocab_size)
 
 
-            # GUSE loss
+            # latent loss
+            latent_loss = self.MSE(guse, latent)
 
             prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
             target = tf.reshape(target, (-1, target.shape[2]))
@@ -265,6 +265,7 @@ class NIC(tf.keras.Model):
             # Sum losses for backprop
             total_loss += cross_entropy_loss
             total_loss += l2_loss
+            total_loss += latent_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
@@ -287,7 +288,7 @@ class NIC(tf.keras.Model):
         #    #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
         #    #cc += 1
 
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy, 'latent': latent_loss}#, grad_sum
 
     @tf.function
     def test_step(self, data):
@@ -310,18 +311,18 @@ class NIC(tf.keras.Model):
         l2_loss   = 0
         cross_entropy_loss = 0
         accuracy  = 0
-        guse_loss = 0
-        guse_sim  = 0
+        latent_loss = 0
 
         # Call model on sample
-        prediction = self(
+        prediction, latent = self(
                 (
                     data[0]
                 ),
                 training=False
         )
 
-        # GUSE loss
+        # latent loss
+        latent_loss = self.MSE(guse, latent)
 
         prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
         target = tf.reshape(target, (-1, target.shape[2]))
@@ -342,7 +343,7 @@ class NIC(tf.keras.Model):
         # Regularization losses
         l2_loss = tf.add_n(self.losses)
 
-        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy, 'latent': latent_loss}
 
     @tf.function
     def loss_function(self, real, pred):
@@ -462,8 +463,10 @@ class NIC(tf.keras.Model):
             A, a, c = self.lstm(sample, initial_state=[a,c], training=False)
             output = self.dense_out(A) # (bs, 1, 5001)
 
+            # Greedy choice
             word = np.argmax(output, axis=-1)
-            # TODO: non-greedy
+            # Non-greedy choice
+            #word = numpy.random.choice(numpy.arange(1, 5000), p=output)
             outputs.append(output)
 
             # encode the new word

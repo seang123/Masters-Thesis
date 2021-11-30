@@ -6,6 +6,8 @@ from tensorflow import keras
 import re
 import logging
 import time
+import warnings
+import concurrent.futures
 
 
 loggerA = logging.getLogger(__name__ + '.data_generator')
@@ -17,8 +19,9 @@ n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/fast/seagie/data/subj_2/captions/"
-betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
-guse_path = "/fast/seagie/data/subj_2/guse_averaged/"
+betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
+guse_path     = "/fast/seagie/data/subj_2/guse_averaged/"
+vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
 
 class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
@@ -37,6 +40,8 @@ class DataGenerator(keras.utils.Sequence):
 
         #self.guse = self.load_guse()
         if pre_load_betas: 
+            warnings.warn("Pre-loading betas... Make sure generator is properly configured")
+            
             self.betas = self.load_all_betas(nsd_keys)
         self.on_epoch_end()
 
@@ -46,7 +51,7 @@ class DataGenerator(keras.utils.Sequence):
             with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
                 betas[i,:] = np.load(f)
 
-        loggerA.info("betas loaded into memory")
+        loggerA.info("betas pre-loaded into memory")
         return betas
 
     def __len__(self):
@@ -60,7 +65,7 @@ class DataGenerator(keras.utils.Sequence):
             np.random.shuffle(idxs)
             self.pairs = self.pairs[idxs]
 
-        loggerA.info("shuffling dataset")
+            loggerA.info("shuffling dataset")
 
     def __getitem__(self, index):
         """ Return one batch """
@@ -79,19 +84,38 @@ class DataGenerator(keras.utils.Sequence):
         count = count.astype(np.int32)
 
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
-        guse_batch = np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
+        guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
+        vgg_batch = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
 
-        if self.pre_load_betas: 
-            betas_batch = self.betas[count,:]
+        def load_betas(key):
+            with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
+                return np.load(f)
+        def load_other(key):
+            with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
+                return np.load(f)
+
+
+        #if self.pre_load_betas: 
+        #    betas_batch = self.betas[count,:]
         """
         for i, key in enumerate(nsd_key):
             with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
                 betas_batch[i, :] = np.load(f)
             #else:
             #with open(f"{guse_path}/guse_embedding_KID{key}_CID{guse_key[i]}.npy", "rb") as g:
-            with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
-                guse_batch[i,:] = np.load(g)
+            #with open(f"{guse_path}/guse_embedding_KID{key}.npy", "rb") as g:
+            #    guse_batch[i,:] = np.load(g)
+            with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
+                vgg_batch[i,:] = np.load(f)
         """
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            results_betas = executor.map(load_betas, nsd_key)
+            results_vgg   = executor.map(load_other, nsd_key)
+        for k, v in enumerate(results_betas):
+            betas_batch[k,:] = v
+        for k, v in enumerate(results_vgg):
+            vgg_batch[k,:] = v
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
@@ -107,9 +131,9 @@ class DataGenerator(keras.utils.Sequence):
 
 
         if self.training:
-            return ((betas_batch, cap_vector, init_state, init_state, guse_batch), target)
+            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target)
         else:
-            return ((betas_batch, cap_vector, init_state, init_state, guse_batch), target, nsd_key)
+            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target, nsd_key)
 
 
 

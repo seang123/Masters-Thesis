@@ -33,9 +33,13 @@ class LocallyDense(tf.keras.layers.Layer):
         self.dense_layers = [
                 tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
 
-        self.dense_2 = tf.keras.layers.Dense(512,
+        self.dense_2 = tf.keras.layers.Dense(4096,
+                name='latent',
+        )
+
+        self.dense_3 = tf.keras.layers.Dense(512,
                 name='embed_dim',
-                **kwargs
+                activation = LeakyReLU(0.2),
         )
 
         self.dropout = dropout
@@ -55,7 +59,9 @@ class LocallyDense(tf.keras.layers.Layer):
         ## concate method 
         out = tf.concat(out, axis=1)
         out = self.dropout(out, training=training)
-        out = self.dense_2(out, training=training)
+        latent = self.dense_2(out, training=training)
+        out = self.dropout(latent, training=training)
+        out = self.dense_3(out, training=training)
 
-        return out
+        return out, latent
 

@@ -68,7 +68,6 @@ val_keys = shr_nsd_keys
 train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
 val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
-
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
 
@@ -165,7 +164,7 @@ epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
 warmup = WarmupScheduler.WarmupScheduler(1, 0.00001, config['alpha'])
 
 early_stop = EarlyStopping(monitor="val_loss", min_delta=0.001, patience=5)
-reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patience=10, min_delta=0.005, min_lr=0.00001)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patience=10, min_delta=0.005, min_lr=0.0001)
 
 logdir = f"./tb_logs/scalars/{config['run']}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
@@ -188,7 +187,7 @@ _callbacks = [
         batch_loss_writer, 
         epoch_loss_writer, 
         tensorboard_callback, 
-        #reduce_lr,
+        reduce_lr,
         checkpoint_latest,
         checkpoint_best,
         #predict_callback,
@@ -242,9 +241,9 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            nsd_keys = train_keys,
-            pre_load_betas=True,
-            shuffle=True, training=True)
+            nsd_keys = train_keys, 
+            pre_load_betas=False,
+            shuffle=False, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
             config['batch_size'], 
@@ -253,8 +252,8 @@ def dotfit():
             config['max_length'], 
             vocab_size, 
             nsd_keys = val_keys,
-            pre_load_betas=True,
-            shuffle=True, training=True)
+            pre_load_betas=False,
+            shuffle=False, training=True)
 
     model.fit(
             train_generator,

@@ -132,7 +132,6 @@ def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list,
     assert len(unq) == 9000, "incorrect amount of unq keys"
     assert len(shrd) == 1000, "incorrect amount of shrd keys"
 
-    #return unq.values - 1, shrd.values - 1
     return unq.values, shrd.values
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
