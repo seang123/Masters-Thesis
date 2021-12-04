@@ -62,16 +62,29 @@ print("betas shr:", betas_shr.shape)
 avg_betas_unq = np.mean(np.abs(betas_unq), axis=0)
 avg_betas_shr = np.mean(np.abs(betas_shr), axis=0)
 
+sum_betas_unq = np.mean(np.abs(betas_unq), axis=0)
+
 # sort the indices least to most active
 idx_avg_betas_unq = np.argsort(avg_betas_unq)
 idx_avg_betas_shr = np.argsort(avg_betas_shr)
+
+idx_sum_betas_unq = np.argsort(sum_betas_unq)
 
 #print("unq betas most active idx:", idx_avg_betas_unq[-N:])
 #print("shr betas most active idx:", idx_avg_betas_shr[-N:])
 most_active_unq = idx_avg_betas_unq[-N:]
 most_active_shr = idx_avg_betas_shr[-N:]
 
+most_active_unq_sum = idx_sum_betas_unq[-N:]
+
+with open(f"./TrainData/sum_most_active_vert.txt", "w") as f:
+    for i in most_active_unq_sum:
+        f.write(f"{i}\n")
+
 #print(avg_betas_unq[most_active_unq[-10:]])
 #print(avg_betas_shr[most_active_shr[-10:]])
 
 print(len(np.intersect1d(most_active_unq, most_active_shr)))
+print(len(np.intersect1d(most_active_unq, most_active_unq_sum)))
+
+

@@ -55,6 +55,7 @@ vocab_size = config['top_k'] + 1
 #
 ## Load data
 #
+"""
 tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
 
 nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
@@ -70,26 +71,21 @@ val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
 
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
+"""
 
+nsd_keys = loader.get_all_nsd_keys([1,2])
 
-# Returns a generator object 
-create_generator = lambda pairs, training: loader.lc_batch_generator(pairs, 
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training=training
-        )
-print("data loaded successfully")
+tokenizer, _ = loader.build_tokenizer([1,2], config['top_k'])
+all_pairs = loader.create_all_pairs([1,2])
+train_pairs, val_pairs = loader.train_val_pairs_from_all(all_pairs)
+print(f"train_pairs: {len(train_pairs)}")
+print(f"val_pairs  : {len(val_pairs)}")
 
 
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9)#, clipnorm=0.2)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -108,8 +104,8 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 model = lc_NIC.NIC(
         #loader.get_groups(config['embedding_features'])[0], 
         #loader.get_groups(config['embedding_features'])[1],
-        loader.get_groups(32)[0], 
-        loader.get_groups(32)[1],
+        loader.get_groups(config['group_size'])[0], 
+        loader.get_groups(config['group_size'])[1],
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],
@@ -158,8 +154,9 @@ checkpoint_latest = ModelCheckpoint(
 #
 ## Callbacks
 #
-batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv", f"{run_path}")
-epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
+#batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv", f"{run_path}")
+#epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
+loss_history = EpochLoss.LossHistory(f"{run_path}/loss_history.csv", f"{run_path}")
 
 warmup = WarmupScheduler.WarmupScheduler(1, 0.00001, config['alpha'])
 
@@ -184,10 +181,11 @@ file_writer = tf.summary.create_file_writer(logdir)
 
 
 _callbacks = [
-        batch_loss_writer, 
-        epoch_loss_writer, 
+        #batch_loss_writer, 
+        #epoch_loss_writer, 
+        loss_history,
         tensorboard_callback, 
-        reduce_lr,
+        #reduce_lr,
         checkpoint_latest,
         checkpoint_best,
         #predict_callback,
@@ -199,40 +197,8 @@ callbacks = tf.keras.callbacks.CallbackList(
 logs = {}
 start_epoch = 0
 
-def load_all_betas(keys):
-    betas = np.zeros((keys.shape[0], 327684), dtype=np.float32)
-    for i, key in enumerate(keys):
-        with open(f"{config['dataset']['betas_path']}/subj02_KID{key}.npy", "rb") as f:
-            betas[i,:] = np.load(f)
-
-    return betas
-
 def dotfit():
     logging.info("training with .fit()")
-
-    # tf.data Generator
-    def create_train_gen():
-        return loader.lc_batch_generator(train_pairs,
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training=True
-            )
-    def create_val_gen():
-        return loader.lc_batch_generator(val_pairs,
-            config['dataset']['betas_path'],
-            config['dataset']['captions_path'],
-            tokenizer,
-            config['batch_size'],
-            config['max_length'],
-            vocab_size,
-            config['units'],
-            training=False
-            )
 
     train_generator = generator.DataGenerator(
             train_pairs, 
@@ -241,9 +207,8 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            nsd_keys = train_keys, 
             pre_load_betas=False,
-            shuffle=False, training=True)
+            shuffle=True, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
             config['batch_size'], 
@@ -251,7 +216,6 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            nsd_keys = val_keys,
             pre_load_betas=False,
             shuffle=False, training=True)
 

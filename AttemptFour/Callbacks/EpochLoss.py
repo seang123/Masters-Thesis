@@ -1,6 +1,45 @@
 import numpy as np
 from tensorflow.keras.callbacks import Callback
 import csv
+import pandas as pd
+import logging
+from contextlib import redirect_stdout 
+
+loggerA = logging.getLogger(__name__ + '.LossHistory')
+
+class LossHistory(Callback):
+
+    def __init__(self, file_name, summary_path):
+        self.file_name = file_name
+        self.summary_path = summary_path
+        self.df = pd.DataFrame()
+        self.cur_epoch = 0
+
+    def on_train_batch_end(self, batch, logs=None):
+        logs['epoch'] = self.cur_epoch
+        self.df = self.df.append(logs, ignore_index=True)
+
+    def on_test_batch_end(self, batch, logs=None):
+        logs = {f"val_{k}":v for k,v in logs.items()} # append val_ to name
+        logs['epoch'] = self.cur_epoch
+        
+        self.df = self.df.append(logs, ignore_index=True)
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.cur_epoch += 1
+
+        self.df.to_csv(self.file_name, index=False)
+        loggerA.info('saving loss history to csv')
+
+        if epoch == 0:
+            with open(f'{self.summary_path}/modelsummary.txt', 'w') as f:
+                with redirect_stdout(f):
+                    self.model.summary()
+                    loggerA.info(f"saving model summary to: {f.name}")
+
+    def on_train_end(self, logs=None):
+        self.df.to_csv(self.file_name, index=False) 
+
 
 
 class EpochLoss(Callback):

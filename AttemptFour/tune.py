@@ -22,13 +22,13 @@ from collections import defaultdict
     Creates an instance of the NIC model and trials several hp combinations
 """
 
-gpu_to_use = 0
+gpu_to_use = 2
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
-tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
+tf.config.set_visible_devices(physical_devices[:gpu_to_use], 'GPU')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_to_use)
+#os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_to_use)
 
 with open("./config.yaml", "r") as f:
     config = yaml.safe_load(f)
@@ -76,13 +76,13 @@ def train_NIC(tune_config):
     physical_devices = tf.config.experimental.list_physical_devices('GPU')
     for i in range(0, len(physical_devices)):
         tf.config.experimental.set_memory_growth(physical_devices[i], True)
-    tf.config.set_visible_devices(physical_devices[0], 'GPU')
+    tf.config.set_visible_devices(physical_devices[:gpu_to_use], 'GPU')
 
     batch_size = tune_config['batch_size']
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=tune_config['lr'], beta_1=0.9, beta_2=0.98, epsilon=10.0e-9,
             #clipvalue=tune_config['clipvalue'], 
-            #clipnorm=tune_config['clipnorm'],
+            clipnorm=tune_config['clipnorm'],
     )
     loss_object = tf.keras.losses.CategoricalCrossentropy(
             from_logits=False,
@@ -90,7 +90,7 @@ def train_NIC(tune_config):
     )
 
     units = tune_config['units']
-    embedding_dim = tune_config['embedding_dim']
+    #embedding_dim = tune_config['embedding_dim']
     group_size = tune_config['group_size']
 
     # Build model
@@ -99,9 +99,9 @@ def train_NIC(tune_config):
             #loader.get_groups(config['embedding_features'])[1],
             loader.get_groups(group_size)[0], 
             loader.get_groups(group_size)[1],
-            tune_config['units'], 
-            embedding_dim, #tune_config['embedding_features'], 
-            embedding_dim, #tune_config['embedding_text'],
+            units, 
+            tune_config['embedding_features'], 
+            tune_config['embedding_text'],
             tune_config['attn_units'],
             vocab_size,
             config['max_length'],
@@ -137,7 +137,7 @@ def train_NIC(tune_config):
             vocab_size, 
             nsd_keys = val_keys,
             pre_load_betas=False,
-            shuffle=True, training=True)
+            shuffle=False, training=True)
 
     model.fit(train_generator,
             epochs = tune_config['epochs'],
@@ -149,10 +149,10 @@ def train_NIC(tune_config):
             initial_epoch = 0,
             callbacks=[TuneReportCallback({
                 "loss": "loss",
-                "val_loss": "val_loss",
                 "L2": "L2",
-                "val_l2": "val_L2",
                 "accuracy": "accuracy",
+                "val_loss": "val_loss",
+                "val_l2": "val_L2",
                 "val_accuracy": "val_accuracy"
             })]
     )
@@ -169,7 +169,7 @@ def tune_NIC(num_training_iterations):
 
     analysis = tune.run(
         train_NIC,
-        name="NIC_attention_fixed_idx",
+        name="NIC_attention_november_last",
         local_dir="./tb_logs/ray_results",
         scheduler=sched,
         metric="loss",
@@ -178,31 +178,31 @@ def tune_NIC(num_training_iterations):
             #"mean_loss": 1.0,
             "training_iteration": num_training_iterations
         },
-        num_samples=100,
+        num_samples=200,
         resources_per_trial={
             "cpu": 2,
-            "gpu": 0.20,
+            "gpu": 0.25,
         },
         config={
             "batch_size": 64,
             "epochs": 30,
             "lr": 0.001, # tune.choice([0.001, 0.0001]),
-            "clipnorm": 0, # 0.2, #tune.loguniform(0.001, 1),
+            "clipnorm": tune.uniform(0.1, 2),
             "clipvalue": 0, #tune.loguniform(0.1, 100),
-            "group_size": 32, # tune.choice([32, 64]),
-            #"embedding_features": 512, #tune.choice([64, 128, 256]),
-            #"embedding_text": 512,
-            "embedding_dim": tune.choice([128, 256, 512]),
-            "units": 512, # tune.choice([256, 512, 1024]),
-            "attn_units": tune.choice([8, 16, 32]),
+            "group_size": tune.choice([32, 64, 128]),
+            "embedding_features": tune.choice([64, 128, 256, 512]),
+            "embedding_text": tune.choice([64, 128, 256, 512]),
+            #"embedding_dim": tune.choice([128, 256, 512]),
+            "units": 512, #tune.choice([256, 512, 1024]),
+            "attn_units": tune.choice([8, 16, 32, 64]),
             "input_reg": tune.loguniform(1.0e-5, 1),
-            "lstm_reg": tune.loguniform(1.0e-5, 1),
-            "output_reg": tune.loguniform(1.0e-5, 1), 
-            "attn_reg": tune.loguniform(1.0e-5, 1),
-            "dropout_features": 0, # tune.uniform(0, 0.8),
-            "dropout_input": 0, # tune.uniform(0, 0.5),
-            "dropout_text": 0, # tune.uniform(0, 0.5),
-            "dropout_attn": 0, # tune.uniform(0, 0.5),
+            "lstm_reg": tune.loguniform(1.0e-5, 0.1),
+            "output_reg": tune.loguniform(1.0e-5, 0.1), 
+            "attn_reg": tune.loguniform(1.0e-5, 0.1),
+            "dropout_features": 0, #tune.uniform(0, 0.7),
+            "dropout_input": 0, #tune.uniform(0, 0.5),
+            "dropout_text": 0, #tune.uniform(0, 0.5),
+            "dropout_attn": 0,  #tune.uniform(0, 0.5),
         }
     )
     print("Best hyperparameters found were: ", analysis.best_config)

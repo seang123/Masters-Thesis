@@ -1,9 +1,15 @@
 ---
  # Name the current run
- run: test_concurrent_loader
+ run: attention_two_subjects
 
  info: | 
-     Fit locally connected network to vgg16 latent space with MSE loss
+     using low_lr_bn3 settings, but with an additional participant 
+     attention_baseline
+     added batch normalization to the attention mechanism 
+     added batch normalization after lc layers and before leakyrelu
+     batch norm after activation function
+     lowered learning rate by 10x based on analysis of 2 sample analysis 
+     model got stuck in a local minima with lr=.001
 
  # Data stores
  dataset:
@@ -16,11 +22,12 @@
  seed: 42
 
  # Training
- epochs: 100
+ epochs: 1000
  batch_size: 64
- max_length: 10
+ max_length: 13
  optimizer: Adam
- alpha: 0.001
+ alpha: 0.0001
+ clipnorm: 1
  decay: 0 #1.0e-4
 
  dropout_input: 0 # 0.17
@@ -44,6 +51,7 @@
  # Model size 
  units: 512 # lstm
  attn_units: 32
+ group_size: 32
  embedding_features: 512
  embedding_text: 512
  top_k: 5000

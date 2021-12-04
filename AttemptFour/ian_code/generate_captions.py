@@ -9,16 +9,17 @@ import json
 subject 02 has 34 trials that have 6 captions the rest have 5
 """
 
+subject = 'subj_1'
 
-nsda = NSDAccess("/home/seagie/NSD")
+nsda = NSDAccess("/home/seagie/NSD2")
 
-loc = "/fast/seagie/data/subj_2/captions"
+loc = f"/fast/seagie/data/{subject}/captions"
 
 if not os.path.exists(loc):
     print(f"creating dir: {loc}")
     os.makedirs(loc)
 
-df = pd.read_csv("../TrainData/subj02_conditions.csv")
+df = pd.read_csv("./TrainData/subj01_conditions.csv")
 
 print(df.columns)
 print(df.head(1))
@@ -45,7 +46,7 @@ for k, v in enumerate(all_keys):
     cap = [j['caption'] for j in captions[k]]
     cap = cap[:5]
     assert len(cap) == 5
-    with open(f'{loc}/SUB2_KID{v+1}.txt', "w") as f:
+    with open(f'{loc}/SUB1_KID{v+1}.txt', "w") as f:
         for c in cap:
             c = c.replace("\n", " ")
             f.write(f"{c}\n")

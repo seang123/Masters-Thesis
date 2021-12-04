@@ -70,7 +70,11 @@ def get_groups(out_dim):
     #return groups[1:], [len(g)//50 for g in groups[1:]]
 ## =====================
 
-def build_tokenizer(captions_path, top_k = 5000):
+def remove_stop_words(list_of_words: list):
+    stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"]
+    return [i for i in list_of_words if i not in stop_words]
+
+def build_tokenizer(subjects: list, top_k = 5000):
     """
     Parameters
     ----------
@@ -86,25 +90,32 @@ def build_tokenizer(captions_path, top_k = 5000):
     """
 
     all_captions = []
+    avg_caption_length = 0
 
     num_files = 0
-    for entry in os.scandir(captions_path):
-        num_files += 1
-        with open(entry.path, "r") as f:
-            content = f.read()
-            for i in content.splitlines():
-                cap = i.replace(".", " ")
-                cap = cap.replace(",", " ")
-                cap = cap.strip()
-                cap = cap.split(" ")
-                cap = [i.lower() for i in cap if i != '']
-                cap = ['<start>'] + cap + ['<end>']
-                cap = " ".join(cap)
 
-                all_captions.append(cap)
+    for i, subj in enumerate(subjects):
+        cap_path = f"/fast/seagie/data/subj_{subj}/captions/"
+        for entry in os.scandir(cap_path):
+            num_files += 1
+            with open(entry.path, "r") as f:
+                content = f.read()
+                for i in content.splitlines():
+                    cap = i.replace(".", " ")
+                    cap = cap.replace(",", " ")
+                    cap = cap.strip()
+                    cap = cap.split(" ")
+                    cap = [i.lower() for i in cap if i != '']
+                    #cap = remove_stop_words(cap)
+                    cap = ['<start>'] + cap + ['<end>']
+                    avg_caption_length += len(cap)
+                    cap = " ".join(cap)
+
+                    all_captions.append(cap)
                 
     print(f"num_files scanned: {num_files}")
     print(f"num captions read: {len(all_captions)}")
+    print(f"avg caption length: {avg_caption_length/len(all_captions)}")
 
     tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token = '<unk>', filters = '!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
     tokenizer.fit_on_texts(all_captions)
@@ -113,18 +124,22 @@ def build_tokenizer(captions_path, top_k = 5000):
 
     return tokenizer, all_captions
 
-def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list, list):
+def get_nsd_keys(subj: str = '2') -> (list, list):
     """ Get the NSD keys for a subject 
 
+    Parameter
+    ---------
+        subj : int | str
+            the subject id
     Returns
     -------
-        sample : list
-            unique nsd keys shown
-        conditions : list
-            all nsd keys show ( sample keys repeated 3 times )
+        unq : ndarray 
+            unique nsd keys
+        shr : ndfarray
+            shared nsd keys
     """
 
-    df = pd.read_csv('./TrainData/subj02_conditions.csv')
+    df = pd.read_csv(f'./TrainData/subj0{subj}_conditions.csv')
 
     unq = df['nsd_key'].loc[df['is_shared']==0]
     shrd = df['nsd_key'].loc[df['is_shared']==1]
@@ -134,28 +149,40 @@ def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list,
 
     return unq.values, shrd.values
 
+def get_all_nsd_keys(subjects: list):
+
+    nsd_keys = []
+    for i, subj in enumerate(subjects):
+        unq_keys, shr_keys = get_nsd_keys(subj)
+        nsd_keys.append([unq_keys, shr_keys])
+    return nsd_keys
+        
+
 def get_shr_nsd_keys(nsd_dir: str) -> list:
     """ Get the shared NSD keys """
     return ngd.get_1000(nsd_dir)
 
-def create_pairs(keys: list, captions_path: str):
+def create_pairs(keys: list, subj: str = '2'):
     """ returns NSD_key - caption pairs
 
     Parameters
     ----------
         nsd_keys : list
             list of unique nsd keys
+        subj: int or str
+            an id of the current subject - should match the passed keys 
         captions_path : str
             path to the caption files
     Returns
     -------
         pairs : list
-            [NSD key, caption, caption id, key_idx]
+            [NSD key, caption, caption id, key_idx, subj_id]
     """
+    cap_path = f"/fast/seagie/data/subj_{subj}/captions/"
 
     pairs = []
     for count, key in enumerate(keys):
-        with open(f"{captions_path}SUB2_KID{key}.txt", "r") as f:
+        with open(f"{cap_path}SUB{subj}_KID{key}.txt", "r") as f:
             content = f.read()
             cid = 0
             for line in content.splitlines():
@@ -164,175 +191,35 @@ def create_pairs(keys: list, captions_path: str):
                 cap = cap.strip()
                 cap = cap.split(" ")
                 cap = [i.lower() for i in cap]
+                #cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
-                pairs.append( (key, cap, cid, count) )
+                pairs.append( (key, cap, cid, count, subj) )
                 cid += 1
 
     return pairs
 
-def add_tokenized_cap_to_pair(pairs: list, tokenizer, max_len: int) -> list:
+def create_all_pairs(subjects: list):
+    """ Create pairs for all subjects """
+    pairs = []
+    for i, subj in enumerate(subjects):
+        unq_keys, shr_keys = get_nsd_keys(subj)
+        train_pairs = create_pairs(unq_keys, subj)
+        val_pairs   = create_pairs(shr_keys, subj)
+        pairs.append([train_pairs, val_pairs])
+    return pairs
 
-    new_pairs = []
-    for pair in pairs:
-        cap_seqs = tokenizer.texts_to_sequences([pair[1]]) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = len(cap.split(" ")), truncating = 'post', padding = 'post')
-        new_pairs.append( (*pair, cap_vector[0]) )
+def train_val_pairs_from_all(all_pairs):
 
-    return new_pairs
-
-
-def apply_mask(x: np.array, mask: np.array):
-    """ Apply a mask to a set of betas
-        Parameters
-        ----------
-            x : np.array
-                betas (~320k, )
-            mask : np.array
-                the mask indicies
-        Returns
-        -------
-            np.array
-                array with some areas masked out
-    """
-    return x[mask == 1]
-
-def batch_generator(
-            pairs: list,
-            betas_path: str,
-            captions_path: str,
-            tokenizer,
-            batch_size: int = 32,
-            max_length: int = 10,
-            vocab_size: int = 5000,
-            units: int = 512,
-            training: bool = True
-        ): 
-
-    with open('/home/seagie/NSD/Code/Masters-Thesis/ThinkAndTell/masks/visual_mask_lh.npy', 'rb') as f, open('/home/seagie/NSD/Code/Masters-Thesis/ThinkAndTell/masks/visual_mask_rh.npy', 'rb') as g:
-        visual_mask_lh = np.load(f)
-        visual_mask_rh = np.load(g)
-#print(" > visual region masks loaded from file") 
-
-    visual_mask = np.vstack([visual_mask_lh, visual_mask_rh]).squeeze()
-    DIM = int(np.sum(visual_mask))
-
-
-    pairs = np.array(pairs)
-    N = pairs.shape[0]
-
-    #while True:
-    for i in range(0, N, batch_size):
-
-        # Load batch
-        batch = pairs[i:i+batch_size,:]
-        nsd_key, cap = batch[:, 0], batch[:,1]
-
-        betas_data = np.zeros((nsd_key.shape[0], 62756), dtype=np.float32)
-        
-        # Load betas + apply mask
-        for i in range(0, nsd_key.shape[0]):
-            key = nsd_key[i]
-            with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-                betas_data[i,:] = apply_mask(np.load(f), visual_mask)
-
-        # Tokenize captions
-        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
-
-        # Create target
-        target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
-        target[:,:-1] = cap_vector[:,1:]
-        target = to_categorical(target,vocab_size)
-        target = target.astype(np.int32)
-
-        # Init LSTM
-        init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
-
-
-        if training:
-           yield ((betas_data, cap_vector, init_state, init_state), target)
-        else:
-           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
-
-
-def apply_lc_mask(betas:np.array, groups:list):
-    """ Apply multiple masks to the betas
-
-    A (327684,) array of betas gets split into multiple masked regions
-    using the mask list
-
-    Parameters
-    ----------
-        betas : ndarray
-            betas array (327684,)
-        groups : list
-            a list of indices corresponding to different regions
-
-    Returns
-    -------
-        list 
-            different masked beta regions
-            [(N0,), (N1,) ...., (N40,)]
-    """
+    train_pairs = []
+    val_pairs = []
+    for i in range(len(all_pairs)):
+        train_pairs.append(all_pairs[i][0])
+        val_pairs.append(all_pairs[i][1])
+    train_pairs = [i for sublist in train_pairs for i in sublist]
+    val_pairs = [i for sublist in val_pairs for i in sublist]
     
-    beta_regions = []
-    for i in groups:
-        region = betas[i]
-        beta_regions.append( region )
-
-    print("beta_regions:", len(beta_regions))
-    print("beta_regions:", [g.shape for g in beta_regions])
-
-    return beta_regions
-
-def lc_batch_generator(
-            pairs: list,
-            betas_path: str,
-            captions_path: str,
-            tokenizer,
-            batch_size: int = 32,
-            max_length: int = 10,
-            vocab_size: int = 5000,
-            units: int = 512,
-            training: bool = True
-        ): 
-
-    pairs = np.array(pairs)
-    N = pairs.shape[0]
-
-#    while True:
-    for i in range(0, N, batch_size):
-
-        # Load batch
-        batch = pairs[i:i+batch_size,:]
-        nsd_key, cap = batch[:, 0], batch[:,1]
-
-        betas_data = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
-
-        # Load betas + apply mask
-        for i in range(0, nsd_key.shape[0]):
-            key = nsd_key[i]
-            with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-                betas_data[i, :] = np.load(f)
-
-        # Tokenize captions
-        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
-
-        # Create target
-        target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
-        target[:,:-1] = cap_vector[:,1:]
-        target = to_categorical(target, vocab_size)
-
-        # Init LSTM
-        init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
-
-        if training:
-            yield ((betas_data, cap_vector, init_state, init_state), target)
-        else:
-           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
-
+    return train_pairs, val_pairs
 
 def main():
 
@@ -341,34 +228,42 @@ def main():
         print(f"Config file loaded.")
 
     start = time.time()
-    tokenizer, _ = build_tokenizer(captions_path, config['top_k'])
+    tokenizer, _ = build_tokenizer(config['top_k'])
     print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
 
-    nsd_keys, shr_nsd_keys = get_nsd_keys(nsd_dir) # (10_000,)
+    nsd_keys, shr_nsd_keys = get_nsd_keys('2') # (10_000,)
     #shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
 
     print("len(set(nsd_keys))", len(list(set(nsd_keys))))
     print("len(set(shr_nsd_keys))", len(list(set(shr_nsd_keys))))
 
-    train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
-    val_keys = shr_nsd_keys
+    train_keys = nsd_keys
+    val_keys   = shr_nsd_keys
 
     print("train_keys:",len(train_keys))
     print("val_keys:  ",len(val_keys))
 
-    train_pairs = create_pairs(train_keys, captions_path)
-    val_pairs = create_pairs(val_keys, captions_path)
+    train_pairs = np.array(create_pairs(train_keys, 2))
+    val_pairs = np.array(create_pairs(val_keys, 2))
 
-    print("train_pairs:", len(train_pairs))
-    print("val_pairs:  ", len(val_pairs))
+    print("train_pairs:", train_pairs.shape)
+    print("val_pairs:  ", val_pairs.shape)
 
-    #lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+    
+    all_pairs = create_all_pairs([1,2]) # [ [[train1], [val1]], [[train2], [val2]] ]
+
+    train_pairs, val_pairs = train_val_pairs_from_all(all_pairs)
+    print(len(train_pairs))
+    print(len(val_pairs))
+
+    raise
+
 
     #start = time.time()
-    #train_pairs = add_tokenized_cap_to_pair(train_pairs, tokenizer, max_len = 10)
     #print(f"Time to tokenize captions: {(time.time() - start):.2f}")
 
-    generator = DataGenerator(train_pairs,
+    generator = DataGenerator(
+            train_pairs,
             batch_size = 32,
             tokenizer = tokenizer,
             units = 512,
@@ -376,8 +271,8 @@ def main():
             vocab_size = 5001,
             nsd_keys = nsd_keys,
             pre_load_betas=False,
-            shuffle=True,
-            training=True)
+            shuffle=False,
+            training=False)
 
     x = generator[0]
     print(x[0][0].shape)
