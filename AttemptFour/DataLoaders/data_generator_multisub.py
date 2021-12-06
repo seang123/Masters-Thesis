@@ -9,8 +9,14 @@ import time
 import warnings
 import concurrent.futures
 
+"""
+Same as data generator guse but for multiple subjects
 
-loggerA = logging.getLogger(__name__ + '.data_generator')
+Split batches into equal parts for each subject (batch size must evenly fit the subjects)
+"""
+
+
+loggerA = logging.getLogger(__name__ + '.data_generator_ms')
 
 nsd_dir = '/home/seagie/NSD2/'
 captions_path = "/fast/seagie/data/subj_2/captions/"
@@ -23,7 +29,6 @@ class DataGenerator(keras.utils.Sequence):
 
     def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, pre_load_betas=False, shuffle=True, training=False):
         print("initialising DataGenerator")
-        self.pairs = np.array(pairs)
         self.batch_size = batch_size
         self.tokenizer = tokenizer
         self.units = units
@@ -33,12 +38,15 @@ class DataGenerator(keras.utils.Sequence):
         self.training = training
         self.pre_load_betas = pre_load_betas
 
-        self.most_active_vert = np.loadtxt("./TrainData/avg_most_active_vert.txt", dtype=np.int32)
+        pairs = np.array(pairs)
+        self.pairsA = pairs[:pairs.shape[0]//2]
+        self.pairsB = pairs[pairs.shape[0]//2:]
+        print("pairsA:", self.pairsA.shape)
+        print("pairsB:", self.pairsB.shape)
+        assert self.pairsA.shape == self.pairsB.shape, "Subjects need to have equal data split"
 
-        #self.guse = self.load_guse()
-        if pre_load_betas: 
-            warnings.warn("Pre-loading betas... Make sure generator is properly configured. Doesn't work with more than 1 subject")
-            #self.betas = self.load_all_betas(nsd_keys)
+        assert batch_size % 2 == 0, "Batch size needs to evenly divide two subjects"
+        self.batch_size = self.batch_size // 2
 
         self.on_epoch_end()
 
@@ -54,29 +62,34 @@ class DataGenerator(keras.utils.Sequence):
 
     def __len__(self):
         """ Nr. of batches per epoch """
-        return len(self.pairs)//self.batch_size
+        return len(self.pairsA)//self.batch_size
 
     def on_epoch_end(self):
         """ Shuffle data when epoch ends """
         if self.shuffle:
-            np.random.shuffle(self.pairs)
+            np.random.shuffle(self.pairsA)
+            np.random.shuffle(self.pairsB)
             loggerA.info("shuffling dataset")
 
     def __getitem__(self, index):
         """ Return one batch """
 
-        batch = self.pairs[index*self.batch_size:(index+1)*self.batch_size]
-        return self.__data_generation(batch)
+        batchA = self.pairsA[index*self.batch_size:(index+1)*self.batch_size]
+        batchB = self.pairsB[index*self.batch_size:(index+1)*self.batch_size]
+        return self.__data_generation(batchA, batchB)
 
-    def __data_generation(self, batch):
+    def __data_generation(self, batchA, batchB):
         """ Generates data cointaining batch_size samples
 
         Takes a batch from the pairs array and returns the appropriate data
         """
 
-        nsd_key, cap, guse_key, count, sub_id = batch[:,0], batch[:,1], batch[:,2], batch[:,3], batch[:,4]
+        nsd_keyA, capA, guse_keyA, countA, sub_idA = batchA[:,0], batchA[:,1], batchA[:,2], batchA[:,3], batchA[:,4]
+        nsd_keyB, capB, guse_keyB, countB, sub_idB = batchB[:,0], batchB[:,1], batchB[:,2], batchB[:,3], batchB[:,4]
 
-        #count   = count.astype(np.int32)
+        nsd_key = np.concatenate((nsd_keyA, nsd_keyB))
+        sub_id  = np.concatenate((sub_idA, sub_idB))
+        cap     = np.concatenate((capA, capB))
 
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
         guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
@@ -102,7 +115,6 @@ class DataGenerator(keras.utils.Sequence):
 
         # Init LSTM
         init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
-
 
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target)

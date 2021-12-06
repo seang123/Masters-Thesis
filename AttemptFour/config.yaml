@@ -1,6 +1,6 @@
 ---
  # Name the current run
- run: attention_two_subjects
+ run: test
 
  info: | 
      using low_lr_bn3 settings, but with an additional participant 
@@ -22,7 +22,7 @@
  seed: 42
 
  # Training
- epochs: 1000
+ epochs: 100
  batch_size: 64
  max_length: 13
  optimizer: Adam

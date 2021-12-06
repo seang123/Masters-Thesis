@@ -24,6 +24,10 @@ import numpy as np
 from collections import defaultdict
 import logging
 
+"""
+    Multiple subjects model
+"""
+
 loggerA = logging.getLogger(__name__ + '.lc_model')
 
 class NIC(tf.keras.Model):
@@ -75,7 +79,16 @@ class NIC(tf.keras.Model):
 
         # For use with:  attention
         self.dropout_attn = Dropout(dropout_attn)
-        self.dense_in = layers.LocallyDense(
+        self.dense_inA = layers.LocallyDense(
+            in_groups, 
+            out_groups, 
+            act_f = LeakyReLU(0.2),
+            #activation=LeakyReLU(0.2),
+            kernel_initializer='he_normal',
+            kernel_regularizer=self.l2_in,
+            #name = 'lc_dense_in'
+        )
+        self.dense_inB = layers.LocallyDense(
             in_groups, 
             out_groups, 
             act_f = LeakyReLU(0.2),
@@ -144,6 +157,43 @@ class NIC(tf.keras.Model):
         #return self.call_lc(data, training)
         #return self.call_fc(data, training)
 
+    def call_attentionB(self, data, training=False):
+        """ Forward pass | Attention model """
+        img_input, text_input, a0, c0, _ = data
+
+        img_input = self.dropout_input(img_input, training=training)
+
+        # Features from regions
+        features = self.dense_inB(img_input, training) 
+        features = self.dropout(features, training=training)
+
+        # Embed the caption vector
+        text = self.embedding(text_input) # (bs, max_len, embed_dim)
+        text = self.dropout_text(text, training=training)
+
+        # init state
+        a = tf.convert_to_tensor(a0) # (bs, embed_dim)
+        c = tf.convert_to_tensor(c0)
+
+        output = []
+        # Pass through LSTM
+        for i in range(text.shape[1]):
+            # compute attention context
+            context, _ = self.attention(a, features, training=training)
+            context = self.expand(context) # (bs, 1, group_size)
+
+            # combine context with word
+            sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
+
+            _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+            output.append(a)
+
+        output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
+
+        # Convert to vocab
+        output = self.dense_out(output) # (bs, max_len, vocab_size)
+
+        return output
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
@@ -152,7 +202,7 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_in(img_input, training) 
+        features = self.dense_inA(img_input, training) 
         features = self.dropout(features, training=training)
 
         # Embed the caption vector
@@ -258,6 +308,24 @@ class NIC(tf.keras.Model):
         target = data[1] # (batch_size, max_length, 5000)
         guse = data[0][-1]
 
+        # unpack data
+        img_input, text_input, a0, c0, _ = data[0]
+        # split into subjects
+        img_inputA = img_input[:img_input.shape[0]//2]
+        img_inputB = img_input[img_input.shape[0]//2:]
+
+        text_inputA = text_input[:text_input.shape[0]//2]
+        text_inputB = text_input[text_input.shape[0]//2:]
+
+        a0A = a0[:a0.shape[0]//2]
+        a0B = a0[a0.shape[0]//2:]
+        c0A = c0[:c0.shape[0]//2]
+        c0B = c0[c0.shape[0]//2:]
+
+        # repackage data
+        dataA = (img_inputA, text_inputA, a0A, c0A, None)
+        dataB = (img_inputB, text_inputB, a0B, c0B, None)
+
         l2_loss = 0
         cross_entropy_loss = 0
         accuracy = 0
@@ -269,13 +337,20 @@ class NIC(tf.keras.Model):
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            prediction = self(
+            predictionA = self.call_attention(
                     (
-                        data[0]
+                        dataA
+                    ), 
+                    training=True
+            ) # (bs, max-length, vocab_size)
+            predictionB = self.call_attentionB(
+                    (
+                        dataB
                     ), 
                     training=True
             ) # (bs, max-length, vocab_size)
 
+            prediction = tf.concat([predictionA, predictionB], axis=0)
 
             # latent loss
             #latent_loss = self.MSE(guse, latent)
@@ -341,6 +416,23 @@ class NIC(tf.keras.Model):
         
         target = data[1]
         guse = data[0][-1]
+        
+        # unpack data
+        img_inputA = img_input[:img_input.shape[0]//2]
+        img_inputB = img_input[img_input.shape[0]//2:]
+
+        text_inputA = text_input[:text_input.shape[0]//2]
+        text_inputB = text_input[text_input.shape[0]//2:]
+
+        a0A = a0[:a0.shape[0]//2]
+        a0B = a0[a0.shape[0]//2:]
+        c0A = c0[:c0.shape[0]//2]
+        c0B = c0[c0.shape[0]//2:]
+
+        # repackage data
+        dataA = (img_inputA, text_inputA, a0A, c0A, None)
+        dataB = (img_inputB, text_inputB, a0B, c0B, None)
+
 
         l2_loss   = 0
         cross_entropy_loss = 0
@@ -348,9 +440,15 @@ class NIC(tf.keras.Model):
         latent_loss = 0
 
         # Call model on sample
-        prediction = self(
+        predictionA = self.call_attention(
                 (
-                    data[0]
+                    dataA
+                ),
+                training=False
+        )
+        predictionB = self.call_attentionB(
+                (
+                    dataB
                 ),
                 training=False
         )

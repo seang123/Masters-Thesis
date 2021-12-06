@@ -52,15 +52,15 @@ else:
 
 
 ## Load data
-tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
+tokenizer, _ = loader.build_tokenizer([2], config['top_k'])
 
-nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
+nsd_keys, shr_nsd_keys = loader.get_nsd_keys('2')
 
 train_keys = nsd_keys
 val_keys = shr_nsd_keys
 
-train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
-val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
+train_pairs = loader.create_pairs(train_keys, 2)
+val_pairs   = loader.create_pairs(val_keys, 2)
 
 def remove_dup_pairs(pairs):
     """ Remove duplicates from the pairs list, based on NSD key """
@@ -83,7 +83,6 @@ val_generator = generator.DataGenerator(
         config['units'], 
         config['max_length'], 
         vocab_size, 
-        nsd_keys = val_keys, # Make sure this matches parameter 0 (pairs)
         pre_load_betas=False,
         shuffle=False, 
         training=False)
@@ -126,7 +125,7 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
-model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep083.h5"
+model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep040.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
 #model.load_weights(model_dir)
@@ -320,8 +319,8 @@ def model_eval(nr_of_batches = 1):
 
 if __name__ == '__main__':
     nr_batchs = 1
-    model_eval(nr_batchs)
-    #eval_full_set()
+    #model_eval(nr_batchs)
+    eval_full_set()
 
 
 
