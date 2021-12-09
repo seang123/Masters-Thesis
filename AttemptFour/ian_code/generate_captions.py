@@ -13,7 +13,7 @@ subject = 'subj_1'
 
 nsda = NSDAccess("/home/seagie/NSD2")
 
-loc = f"/fast/seagie/data/{subject}/captions"
+loc = f"/fast/seagie/data/captions"
 
 if not os.path.exists(loc):
     print(f"creating dir: {loc}")
@@ -41,12 +41,14 @@ except Exception:
 
 all_keys = list(df['nsd_key'].values - 1)
 
+all_keys = list(range(0, 73000))
+
 captions = [i for i in nsda.read_image_coco_info(image_index=all_keys)] # [[{}]]
 for k, v in enumerate(all_keys):
     cap = [j['caption'] for j in captions[k]]
     cap = cap[:5]
     assert len(cap) == 5
-    with open(f'{loc}/SUB1_KID{v+1}.txt', "w") as f:
+    with open(f'{loc}/KID{v+1}.txt', "w") as f:
         for c in cap:
             c = c.replace("\n", " ")
             f.write(f"{c}\n")
