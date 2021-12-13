@@ -34,7 +34,7 @@ class NIC(tf.keras.Model):
                 LSTM and output layer should be same as lc_NIC model if pre-training
     """
 
-    def __init__(self, in_groups, out_groups, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout_features, dropout_text, dropout_attn, dropout_lstm, input_reg, attn_reg, lstm_reg, output_reg):
+    def __init__(self, group_size, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout_features, dropout_text, dropout_attn, dropout_lstm, input_reg, attn_reg, lstm_reg, output_reg):
         """ Initialisation method. Builds the keras.Model """
         super(NIC, self).__init__()
 
@@ -54,7 +54,8 @@ class NIC(tf.keras.Model):
         # For use with:  attention
         self.dropout_attn = Dropout(dropout_attn)
         self.dense_in = img_localDense.LocallyDense(
-            n_featuers = 64,
+            n_features = 64,
+            embed_dim = group_size,
             dropout = None,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
@@ -74,7 +75,8 @@ class NIC(tf.keras.Model):
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
-        self.embedding = Embedding(vocab_size, 
+        self.embedding = Embedding(
+            vocab_size, 
             embedding_text, 
             embeddings_initializer=RandomUniform(-0.08, 0.08),
             mask_zero=True,
@@ -82,15 +84,13 @@ class NIC(tf.keras.Model):
             name = 'emb_text',
         )
 
-        """
         # LSTM layer
-        self.lstm = LSTM(units,
+        self.lstm = LSTM(
+            units,
             return_sequences=True,
             return_state=True,
             kernel_regularizer=self.l2_lstm,
-            #kernel_initializer=RandomUniform(-0.08, 0.08),
-            #recurrent_initializer=RandomUniform(-0.08, 0.08),
-            dropout=dropout_lstm,
+            #dropout=dropout_lstm,
             name = 'lstm'
         )
         """
@@ -102,6 +102,7 @@ class NIC(tf.keras.Model):
                 #kernel_regularizer=self.l2_lstm,
                 name='lstm'
         )
+        """
 
         # Output dense layer
         self.dense_out = TimeDistributed(
@@ -124,14 +125,14 @@ class NIC(tf.keras.Model):
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
-        img_input, text_input, a0, c0, _ = data
+        img_input, text_input, a0, c0 = data
 
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
         features = self.dense_in(img_input, training) 
         features = self.dropout(features, training=training)
-
+    
         # Embed the caption vector
         text = self.embedding(text_input) # (bs, max_len, embed_dim)
         text = self.dropout_text(text, training=training)
@@ -151,6 +152,7 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+
             output.append(a)
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
@@ -159,37 +161,6 @@ class NIC(tf.keras.Model):
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
         return output
-
-    def call_lc(self, data, training=False):
-        """ Forward Pass | locally connected without attention """
-
-        img_input, text_input, a0, c0, _ = data
-
-        img_input = self.dropout_input(img_input, training=training)
-
-        # Betas Encoding 
-        features, latent = self.dense_in(img_input, training=training) 
-        features = self.dropout(features, training=training)
-        # Attend to embeddings
-        #features = self.attention(features, training)
-        features = self.expand(features)
-
-        # Embed the caption vector
-        text = self.embedding(text_input)
-        text = self.dropout_text(text, training=training)
-
-        a0 = tf.convert_to_tensor(a0)
-        c0 = tf.convert_to_tensor(c0)
-
-        # Pass through LSTM
-        #A, _, _ = self.lstm(tf.concat([features, text], axis=1), initial_state=[a0, c0], training=training)
-        _, a, c = self.lstm(features, initial_state=[a0, c0], training=training)
-        A, _, _ = self.lstm(text, initial_state=[a, c], training=training)
-
-        # Convert to vocab
-        output = self.dense_out(A, training=training)
-
-        return output#, latent
 
     def call_fc(self, data, training=False):
         img_input, text_input, a0, c0, _ = data
@@ -233,12 +204,10 @@ class NIC(tf.keras.Model):
         """
 
         target = data[1] # (batch_size, max_length, 5000)
-        guse = data[0][-1]
 
         l2_loss = 0
         cross_entropy_loss = 0
         accuracy = 0
-        latent_loss = 0
         total_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
@@ -257,10 +226,6 @@ class NIC(tf.keras.Model):
             # latent loss
             #latent_loss = self.MSE(guse, latent)
 
-            #prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
-            #target = tf.reshape(target, (-1, target.shape[2]))
-            #cross_entropy_loss = self.loss_function(target, prediction)
-            #accuracy = self.accuracy_calculation(target, prediction)
             # Cross-entropy loss & Accuracy
             for i in range(0, target.shape[1]):
                 cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
@@ -282,23 +247,6 @@ class NIC(tf.keras.Model):
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
-        
-        #cc = 0
-        #for grad in gradients:
-        #    if cc % 2 == 0:
-        #       print(">", grad.name, "--", grad.shape)
-        #   else:
-        #        print(grad.name, "--", grad.shape)
-        #    cc += 1
-        #raise Exception("stop")
-        #grad_sum = []
-        #cc = 0
-        #for grad in gradients:
-        #    #if cc % 2 == 0:
-        #    grad_sum.append( tf.reduce_sum(tf.math.square(grad), axis=0).numpy() ) # first part of Euclidean norm
-        #    #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
-        #    #cc += 1
-
         return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
 
     @tf.function
@@ -317,7 +265,6 @@ class NIC(tf.keras.Model):
         """
         
         target = data[1]
-        guse = data[0][-1]
 
         l2_loss   = 0
         cross_entropy_loss = 0

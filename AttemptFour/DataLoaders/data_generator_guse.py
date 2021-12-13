@@ -6,6 +6,7 @@ from tensorflow import keras
 import re
 import logging
 import time
+import tqdm
 import warnings
 import concurrent.futures
 
@@ -14,7 +15,7 @@ loggerA = logging.getLogger(__name__ + '.data_generator')
 
 nsd_dir = '/home/seagie/NSD2/'
 captions_path = "/fast/seagie/data/subj_2/captions/"
-#betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
+betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
 guse_path     = "/fast/seagie/data/subj_2/guse_averaged/"
 vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
 
@@ -35,17 +36,20 @@ class DataGenerator(keras.utils.Sequence):
 
         self.most_active_vert = np.loadtxt("./TrainData/avg_most_active_vert.txt", dtype=np.int32)
 
-        #self.guse = self.load_guse()
+
         if pre_load_betas: 
             warnings.warn("Pre-loading betas... Make sure generator is properly configured. Doesn't work with more than 1 subject")
-            #self.betas = self.load_all_betas(nsd_keys)
+            self.nsd_to_idx = {}
+            keys = np.array(list(set([i[0] for i in self.pairs])))
+            self.betas = self.preload_data(keys)
 
         self.on_epoch_end()
 
-    def load_all_betas(self, keys):
+    def preload_data(self, keys):
         # Not corrently implemented when using more than one subject
         betas = np.zeros((keys.shape[0], 327684), dtype=np.float32)
-        for i, key in enumerate(keys):
+        for i, key in tqdm.tqdm(enumerate(keys)):
+            self.nsd_to_idx[str(key)] = i
             with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
                 betas[i,:] = np.load(f)
 
@@ -73,23 +77,24 @@ class DataGenerator(keras.utils.Sequence):
 
         Takes a batch from the pairs array and returns the appropriate data
         """
-
-        nsd_key, cap, guse_key, count, sub_id = batch[:,0], batch[:,1], batch[:,2], batch[:,3], batch[:,4]
-
+        nsd_key, cap, guse_key, count = batch[:,0], batch[:,1], batch[:,2], batch[:,3]
         #count   = count.astype(np.int32)
 
+        # Pre-allocate memory
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
         guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
         vgg_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
 
-
-        #if self.pre_load_betas: 
-        #    betas_batch = self.betas[count,:]
-        for i, key in enumerate(nsd_key):
-            with open(f"/fast/seagie/data/subj_{sub_id[i]}/betas_averaged/subj0{sub_id[i]}_KID{key}.npy", "rb") as f:
-                betas_batch[i, :] = np.load(f)
-            #with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
-            #    vgg_batch[i,:] = np.load(f)
+        # Load data 
+        if self.pre_load_betas: 
+            for i, key in enumerate(nsd_key):
+                betas_batch[i, :] = self.betas[self.nsd_to_idx[key]]
+        else:
+            for i, key in enumerate(nsd_key):
+                with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
+                    betas_batch[i, :] = np.load(f)
+                #with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
+                #    vgg_batch[i,:] = np.load(f)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
@@ -102,8 +107,7 @@ class DataGenerator(keras.utils.Sequence):
 
         # Init LSTM
         init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
-
-
+        
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target)
         else:

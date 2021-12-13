@@ -54,13 +54,12 @@ else:
 ## Load data
 tokenizer, _ = loader.build_tokenizer([2], config['top_k'])
 
-nsd_keys, shr_nsd_keys = loader.get_nsd_keys('2')
+train_keys, val_keys = loader.get_nsd_keys('2')
+print("train_keys:", train_keys.shape)
+print("val_keys:", val_keys.shape)
 
-train_keys = nsd_keys
-val_keys = shr_nsd_keys
-
-train_pairs = loader.create_pairs(train_keys, 2)
-val_pairs   = loader.create_pairs(val_keys, 2)
+train_pairs = loader.create_pairs(train_keys)
+val_pairs   = loader.create_pairs(val_keys)
 
 def remove_dup_pairs(pairs):
     """ Remove duplicates from the pairs list, based on NSD key """
@@ -125,7 +124,7 @@ print("model built")
 
 ## Restore model from Checkpoint
 model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
-model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep040.h5"
+model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep010.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
 #model.load_weights(model_dir)
@@ -319,8 +318,8 @@ def model_eval(nr_of_batches = 1):
 
 if __name__ == '__main__':
     nr_batchs = 1
-    #model_eval(nr_batchs)
-    eval_full_set()
+    model_eval(nr_batchs)
+    #eval_full_set()
 
 
 

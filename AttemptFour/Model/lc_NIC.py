@@ -47,7 +47,8 @@ class NIC(tf.keras.Model):
         self.dropout_text = Dropout(dropout_text)
 
         #self.relu = ReLU()
-        self.MSE = tf.keras.losses.MeanSquaredError()
+        #self.MSE = tf.keras.losses.MeanSquaredError()
+        self.MSE = tf.keras.losses.MeanAbsoluteError()
         #self.cos_sim = tf.keras.losses.CosineSimilarity() 
 
         """
@@ -78,8 +79,7 @@ class NIC(tf.keras.Model):
         self.dense_in = layers.LocallyDense(
             in_groups, 
             out_groups, 
-            act_f = LeakyReLU(0.2),
-            #activation=LeakyReLU(0.2),
+            activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
@@ -117,12 +117,13 @@ class NIC(tf.keras.Model):
             name = 'lstm'
         )
         """
-        self.lnLSTMCell = LayerNormLSTMCell(units)
+        self.lnLSTMCell = LayerNormLSTMCell(units,
+                kernel_regularizer=self.l2_lstm,
+                )
         self.lstm = tf.keras.layers.RNN(
                 self.lnLSTMCell, 
                 return_sequences=True, 
                 return_state=True,
-                #kernel_regularizer=self.l2_lstm,
                 name='lstm'
         )
 
@@ -163,12 +164,16 @@ class NIC(tf.keras.Model):
         a = tf.convert_to_tensor(a0) # (bs, embed_dim)
         c = tf.convert_to_tensor(c0)
 
+        attention_scores = tf.zeros((features.shape[0], features.shape[1], 1), dtype=tf.float32)
+
         output = []
         # Pass through LSTM
         for i in range(text.shape[1]):
             # compute attention context
-            context, _ = self.attention(a, features, training=training)
+            context, attn_scores = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
+
+            attention_scores += attn_scores
 
             # combine context with word
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
@@ -181,7 +186,7 @@ class NIC(tf.keras.Model):
         # Convert to vocab
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
-        return output
+        return output, attention_scores
 
     def call_lc(self, data, training=False):
         """ Forward Pass | locally connected without attention """
@@ -263,27 +268,24 @@ class NIC(tf.keras.Model):
         accuracy = 0
         latent_loss = 0
         total_loss = 0
+        attn_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
 
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            prediction = self(
+            prediction, attention_scores = self(
                     (
                         data[0]
                     ), 
                     training=True
-            ) # (bs, max-length, vocab_size)
+            ) # (bs, max-length, vocab_size), (bs, 180, 1)
 
+            # Attention loss
+            attention_target = tf.ones(attention_scores, dtype=tf.float32)
+            attn_loss += self.MSE(attention_target, attention_scores)
 
-            # latent loss
-            #latent_loss = self.MSE(guse, latent)
-
-            #prediction = tf.reshape(prediction, (-1, prediction.shape[2]))
-            #target = tf.reshape(target, (-1, target.shape[2]))
-            #cross_entropy_loss = self.loss_function(target, prediction)
-            #accuracy = self.accuracy_calculation(target, prediction)
             # Cross-entropy loss & Accuracy
             for i in range(0, target.shape[1]):
                 cross_entropy_loss += self.loss_function(target[:,i], prediction[:,i])
@@ -299,7 +301,7 @@ class NIC(tf.keras.Model):
             # Sum losses for backprop
             total_loss += cross_entropy_loss
             total_loss += l2_loss
-            #total_loss += latent_loss
+            total_loss += attn_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
@@ -322,7 +324,7 @@ class NIC(tf.keras.Model):
         #    #grad_sum.append(tf.reduce_mean(grad, axis=0).numpy())
         #    #cc += 1
 
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy, 'attention': attn_loss}#, grad_sum
 
     @tf.function
     def test_step(self, data):
@@ -346,18 +348,20 @@ class NIC(tf.keras.Model):
         cross_entropy_loss = 0
         accuracy  = 0
         latent_loss = 0
+        attn_loss = 0
 
         # Call model on sample
-        prediction = self(
+        prediction, attention_scores = self(
                 (
                     data[0]
                 ),
                 training=False
         )
 
-        # latent loss
-        #latent_loss = self.MSE(guse, latent)
-
+        # Attention loss
+        attention_scores = tf.squeeze(attention_scores)
+        attention_target = tf.ones(attention_scores.shape[1], dtype=tf.float32)
+        attn_loss += self.MSE(attention_target, attention_scores)
 
         # Cross-entropy & Accuracy
         for i in range(0, target.shape[1]):
@@ -371,7 +375,7 @@ class NIC(tf.keras.Model):
         # Regularization losses
         l2_loss = tf.add_n(self.losses)
 
-        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy, 'attention': attn_loss}
 
     @tf.function
     def loss_function(self, real, pred):
@@ -453,19 +457,6 @@ class NIC(tf.keras.Model):
 
         Parameters
         ----------
-            img_input : ndarray
-                the features (fMRI betas/CNN)
-            start_seq : ndarray
-                starting token to seed the caption output
-            a0 : ndarray
-                initial state hidden
-            c0 : ndarray
-                initial state carry
-            max_len : int
-                the max caption length to produce
-            units : int
-                nr of hidden units in the LSTM 
-
         Returns
         -------
             outputs : ndarray

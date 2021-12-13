@@ -14,7 +14,6 @@ from ian_code import nsd_get_data as ngd
 import yaml
 import nibabel as nb
 from concurrent.futures import ThreadPoolExecutor
-#from data_generator_guse import DataGenerator
 
 
 np.random.seed(42)
@@ -25,7 +24,7 @@ subject = "subj02"
 n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
-captions_path = "/fast/seagie/data/subj_2/captions/"
+captions_path = "/fast/seagie/data/captions/"
 betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
 USE_ENTIRE_CORTEX = True
 
@@ -70,16 +69,30 @@ def get_groups(out_dim):
     #return groups[1:], [len(g)//50 for g in groups[1:]]
 ## =====================
 
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        out = func(*args, **kwargs)
+        print(f"{func.__name__} - {(time.perf_counter() - start):.3f} sec")
+        return out
+    return wrapper
+
+
 def remove_stop_words(list_of_words: list):
     stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"]
     return [i for i in list_of_words if i not in stop_words]
 
-def build_tokenizer(subjects: list, top_k = 5000):
+@timeit
+def build_tokenizer(nsd_keys: list, top_k = 5000):
     """
+    Build tokenizer from captions
+
+    Ignore captions that aren't in the keys list
+
     Parameters
     ----------
-        captions_path : str
-            path to folder with captions
+        nsd_keys : list
+            a list of NSD keys to load
         top_k : int
             vocab size
 
@@ -92,19 +105,17 @@ def build_tokenizer(subjects: list, top_k = 5000):
     all_captions = []
     avg_caption_length = 0
 
-    num_files = 0
+    keys = set([i for i in nsd_keys])
 
-    for i, subj in enumerate(subjects):
-        cap_path = f"/fast/seagie/data/subj_{subj}/captions/"
-        for entry in os.scandir(cap_path):
-            num_files += 1
+    num_files = 0
+    for entry in os.scandir(captions_path):
+        num_files += 1
+        kid = re.search('(?<=KID)[0-9]+', entry.name)[0]
+        if int(kid) in keys:
             with open(entry.path, "r") as f:
                 content = f.read()
                 for i in content.splitlines():
-                    cap = i.replace(".", " ")
-                    cap = cap.replace(",", " ")
-                    cap = cap.strip()
-                    cap = cap.split(" ")
+                    cap = i.replace(".", " ").replace(",", " ").strip().split(" ")
                     cap = [i.lower() for i in cap if i != '']
                     #cap = remove_stop_words(cap)
                     cap = ['<start>'] + cap + ['<end>']
@@ -148,21 +159,14 @@ def get_nsd_keys(subj: str = '2') -> (list, list):
     assert len(shrd) == 1000, "incorrect amount of shrd keys"
 
     return unq.values, shrd.values
-
-def get_all_nsd_keys(subjects: list):
-
-    nsd_keys = []
-    for i, subj in enumerate(subjects):
-        unq_keys, shr_keys = get_nsd_keys(subj)
-        nsd_keys.append([unq_keys, shr_keys])
-    return nsd_keys
         
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
     """ Get the shared NSD keys """
     return ngd.get_1000(nsd_dir)
 
-def create_pairs(keys: list, subj: str = '2'):
+@timeit
+def create_pairs(keys: list):
     """ returns NSD_key - caption pairs
 
     Parameters
@@ -178,35 +182,21 @@ def create_pairs(keys: list, subj: str = '2'):
         pairs : list
             [NSD key, caption, caption id, key_idx, subj_id]
     """
-    cap_path = f"/fast/seagie/data/subj_{subj}/captions/"
 
     pairs = []
     for count, key in enumerate(keys):
-        with open(f"{cap_path}SUB{subj}_KID{key}.txt", "r") as f:
+        with open(f"{captions_path}/KID{key}.txt", "r") as f:
             content = f.read()
             cid = 0
             for line in content.splitlines():
-                cap = line.replace(".", " ")
-                cap = cap.replace(",", " ")
-                cap = cap.strip()
-                cap = cap.split(" ")
+                cap = line.replace(".", " ").replace(",", " ").strip().split(" ")
                 cap = [i.lower() for i in cap]
                 #cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
-                pairs.append( (key, cap, cid, count, subj) )
+                pairs.append( (key, cap, cid, count) )
                 cid += 1
 
-    return pairs
-
-def create_all_pairs(subjects: list):
-    """ Create pairs for all subjects """
-    pairs = []
-    for i, subj in enumerate(subjects):
-        unq_keys, shr_keys = get_nsd_keys(subj)
-        train_pairs = create_pairs(unq_keys, subj)
-        val_pairs   = create_pairs(shr_keys, subj)
-        pairs.append([train_pairs, val_pairs])
     return pairs
 
 def train_val_pairs_from_all(all_pairs):
@@ -227,52 +217,38 @@ def main():
         config = yaml.safe_load(f)
         print(f"Config file loaded.")
 
-    start = time.time()
-    tokenizer, _ = build_tokenizer(config['top_k'])
-    print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
+    train_keys, val_keys = get_nsd_keys('2') # (10_000,)
+    print("len(set(nsd_keys))", len(list(set(train_keys))))
+    print("len(set(shr_nsd_keys))", len(list(set(val_keys))))
 
-    nsd_keys, shr_nsd_keys = get_nsd_keys('2') # (10_000,)
-    #shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
+    #train_keys = list(range(1, 73001))[:70000]
+    #val_keys   = list(range(1, 73001))[70000:]
 
-    print("len(set(nsd_keys))", len(list(set(nsd_keys))))
-    print("len(set(shr_nsd_keys))", len(list(set(shr_nsd_keys))))
-
-    train_keys = nsd_keys
-    val_keys   = shr_nsd_keys
-
-    print("train_keys:",len(train_keys))
-    print("val_keys:  ",len(val_keys))
-
-    train_pairs = np.array(create_pairs(train_keys, 2))
-    val_pairs = np.array(create_pairs(val_keys, 2))
-
+    train_pairs = np.array(create_pairs(train_keys))
+    val_pairs = np.array(create_pairs(val_keys))
     print("train_pairs:", train_pairs.shape)
     print("val_pairs:  ", val_pairs.shape)
 
+    start = time.time()
+    tokenizer, _ = build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
+    print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
     
-    all_pairs = create_all_pairs([1,2]) # [ [[train1], [val1]], [[train2], [val2]] ]
-
-    train_pairs, val_pairs = train_val_pairs_from_all(all_pairs)
-    print(len(train_pairs))
-    print(len(val_pairs))
-
-    raise
-
 
     #start = time.time()
     #print(f"Time to tokenize captions: {(time.time() - start):.2f}")
 
+    from data_generator_guse import DataGenerator
     generator = DataGenerator(
             train_pairs,
-            batch_size = 32,
+            batch_size = 64,
             tokenizer = tokenizer,
             units = 512,
-            max_len = 10,
+            max_len = 13,
             vocab_size = 5001,
-            nsd_keys = nsd_keys,
-            pre_load_betas=False,
-            shuffle=False,
-            training=False)
+            pre_load_betas=True,
+            shuffle=True,
+            training=True
+    )
 
     x = generator[0]
     print(x[0][0].shape)
@@ -282,6 +258,6 @@ def main():
 if __name__ == '__main__':
     start = time.time()
     main()
-    print(f"Time: {(time.time() - start):.2f}")
+    print(f"Total time elapsed: {(time.time() - start):.2f}")
 
 

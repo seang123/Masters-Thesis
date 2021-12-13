@@ -29,12 +29,12 @@ class LocallyDense(tf.keras.layers.Layer):
         """ Forward pass """
         # x = (bs, 64, 2048)
         #out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
-        out = [layer(x[:,i,:], training=training) for i in range(self.n_features)]
+        out = [layer(x[:,i,:], training=training) for (layer,i) in zip(self.dense_layers, range(self.n_features))]
         # => (bs, 64, dim)
 
         out = tf.convert_to_tensor(out)
-        out = tf.reshape(out, perm=[1,0,2])
-        out = tf.bn(out)
+        out = tf.transpose(out, perm=[1,0,2])
+        out = self.bn(out)
 
         return out
 

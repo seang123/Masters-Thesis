@@ -1,11 +1,9 @@
 ---
  # Name the current run
- run: separate_encoders_baseline_no_ln
+ run: test_2
 
  info: | 
-     using low_lr_bn3 settings, but with an additional participant 
-     using layer-norm-lstm
-     trained with subjects 1 and 2 with separate encoders
+     testing if attention weight scores sum to 1 across time for a region i
 
  # Data stores
  dataset:
@@ -18,7 +16,7 @@
  seed: 42
 
  # Training
- epochs: 100
+ epochs: 50
  batch_size: 64
  max_length: 13
  optimizer: Adam
@@ -47,7 +45,7 @@
  # Model size 
  units: 512 # lstm
  attn_units: 32
- group_size: 32
+ group_size: 64
  embedding_features: 512
  embedding_text: 512
  top_k: 5000

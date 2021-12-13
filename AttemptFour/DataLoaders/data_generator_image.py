@@ -8,6 +8,7 @@ import logging
 import time
 import warnings
 import concurrent.futures
+import tqdm
 
 """
     Data Generator for loading VGG16 / InceptionV3 features
@@ -38,22 +39,48 @@ class DataGenerator(keras.utils.Sequence):
         self.training = training
         self.pre_load_betas = pre_load_betas
 
+        self.nsd_to_idx = {}
+
+        keys = np.array(list(set([i[0] for i in self.pairs])))
+        for i, k in enumerate(keys):
+            self.nsd_to_idx[str(k)] = i
+
         #self.guse = self.load_guse()
         if pre_load_betas: 
             warnings.warn("Pre-loading betas... Make sure generator is properly configured. Doesn't work with more than 1 subject")
-            #self.betas = self.load_all_betas(nsd_keys)
+            self.features = self.preload_data(keys)
 
         self.on_epoch_end()
 
-    def load_all_betas(self, keys):
-        # Not corrently implemented when using more than one subject
-        betas = np.zeros((keys.shape[0], 327684), dtype=np.float32)
-        for i, key in enumerate(keys):
-            with open(f"{betas_path}/subj02_KID{key}.npy", "rb") as f:
-                betas[i,:] = np.load(f)
+    def load_helper(self, key, i):
+        self.nsd_to_idx[str(key)] = i
+        with open(f"{inception_v3_path}/KID{key}.npy", "rb") as f:
+            return np.reshape(np.load(f), (64, 2048)), i
+
+    def preload_data(self, keys):
+
+        features = np.zeros((keys.shape[0], 64, 2048), dtype=np.float32)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
+            futures = []
+            for i, key in enumerate(keys):
+                futures.append(executor.submit(self.load_helper, key, i))
+            for future in concurrent.futures.as_completed(futures):
+                data, ii = future.result()
+                features[ii] = data
 
         loggerA.info("betas pre-loaded into memory")
-        return betas
+        return features
+
+    def preload_data2(self, keys):
+        # Not corrently implemented when using more than one subject
+        features = np.zeros((keys.shape[0], 64, 2048), dtype=np.float32)
+        for i, key in tqdm.tqdm(enumerate(keys), desc = 'loading data into memory', total=keys.shape[0]):
+            #self.nsd_to_idx[str(key)] = i
+            with open(f"{inception_v3_path}/KID{key}.npy", "rb") as f:
+                features[i,:] = np.reshape(np.load(f), (64, 2048))
+
+        loggerA.info("betas pre-loaded into memory")
+        return features
 
     def __len__(self):
         """ Nr. of batches per epoch """
@@ -77,20 +104,19 @@ class DataGenerator(keras.utils.Sequence):
         Takes a batch from the pairs array and returns the appropriate data
         """
 
-        nsd_key, cap, guse_key, count, sub_id = batch[:,0], batch[:,1], batch[:,2], batch[:,3], batch[:,4]
+        nsd_key, cap, guse_key, count = batch[:,0], batch[:,1], batch[:,2], batch[:,3]
 
         #count   = count.astype(np.int32)
 
         betas_batch = None #np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
         guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
         vgg_batch   = None #np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
-        inception_batch = np.zeros((nsd_key.shape[0], 8, 8, 2048), dtype=np.float32)
+        inception_batch = np.zeros((nsd_key.shape[0], 64, 2048), dtype=np.float32)
 
         for i, key in enumerate(nsd_key):
-            with open(f"/huge/seagie/data/inception_v3/KID{key}.npy", "rb") as f:
-                inception_batch[i] = np.load(f)
-
-        inception_batch = np.reshape(inception_batch, (nsd_key.shape[0], 64, 2058))
+            #with open(f"/huge/seagie/data/inception_v3/KID{key}.npy", "rb") as f:
+            idx = self.nsd_to_idx[str(key)]
+            inception_batch[i] = self.features[idx]
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32

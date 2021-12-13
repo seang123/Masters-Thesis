@@ -11,8 +11,8 @@ import numpy as np
 from Model import NIC, lc_NIC, ms_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
-#from DataLoaders import data_generator_guse as generator
-from DataLoaders import data_generator_multisub as generator
+from DataLoaders import data_generator_guse as generator
+#from DataLoaders import data_generator_multisub as generator
 from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from collections import defaultdict
@@ -74,20 +74,19 @@ print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
 """
 
-nsd_keys = loader.get_all_nsd_keys([1,2])
-tokenizer, _ = loader.build_tokenizer([1,2], config['top_k'])
-all_pairs = loader.create_all_pairs([1,2])
-train_pairs, val_pairs = loader.train_val_pairs_from_all(all_pairs)
+train_keys, val_keys = loader.get_nsd_keys('2')
+print("train_keys:", train_keys.shape)
+print("val_keys:", val_keys.shape)
 
-"""
-unq_keys, shr_keys = loader.get_nsd_keys('2')
-tokenizer, _ = loader.build_tokenizer([2], config['top_k'])
-train_pairs = loader.create_pairs(unq_keys, '2')
-val_pairs = loader.create_pairs(shr_keys, '2')
-print(f"train_pairs: {len(train_pairs)}")
-print(f"val_pairs  : {len(val_pairs)}")
-"""
+train_pairs = np.array(loader.create_pairs(train_keys))
+val_pairs = np.array(loader.create_pairs(val_keys))
+print("train_pairs:", train_pairs.shape)
+print("val_pairs:  ", val_pairs.shape)
 
+print(train_pairs[0:20])
+raise
+
+tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
 
 # Setup optimizer 
@@ -108,7 +107,7 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 )
 
 # Setup Model
-model = ms_NIC.NIC(
+model = lc_NIC.NIC(
         #loader.get_groups(config['embedding_features'])[0], 
         #loader.get_groups(config['embedding_features'])[1],
         loader.get_groups(config['group_size'])[0], 
@@ -214,7 +213,7 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            pre_load_betas=False,
+            pre_load_betas=True,#False,
             shuffle=True, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
