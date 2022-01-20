@@ -6,89 +6,81 @@ import pandas as pd
 import DataLoaders.load_avg_betas as loader
 from scipy import stats
 import sys
+import nibabel as nb
+import cortex
+
+from nsd_access import NSDAccess
 
 
-x = [[[1,2,3,4], [5,6,7,8]], [[4,3,2,1], [8,7,6,5]]]
+conditions = pd.read_csv(f"./TrainData/subj02_conditions.csv")
+val_keys = conditions.loc[conditions['is_shared'] == 1]
+val_keys = val_keys.reset_index(drop=True)
 
-y = []
-for i in range(len(x)):
-    y.append( x[i][0] )
+key = val_keys['nsd_key'].iloc[0]
+print("key:", key)
 
-print(y)
 
-raise
 
-df = pd.read_csv('./TrainData/subj01_conditions.csv')
 
-print(len(df['nsd_key']))
-print(sum(df['is_shared']))
+GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
+GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
+VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
 
-df = pd.read_csv('./Log/attention_baseline_low_lr_bn/loss_history.csv')
+glasser_lh = nb.load(GLASSER_LH).get_data()
+glasser_rh = nb.load(GLASSER_RH).get_data()
+glasser = np.vstack((glasser_lh, glasser_rh)).flatten() # (327684,)
 
-print(df.describe())
+groups = []
+glasser_indices = np.array(range(len(glasser)))
+for i in set(glasser):
+    group = glasser_indices[glasser == i]
+    groups.append(group)
+groups = groups[1:]
+
+ngroups = len(groups)
+assert ngroups == 180
+
+region_id = 0
+
+glasser_regions = np.zeros(glasser.shape)
+#for i, g in enumerate(groups):
+#    glasser_regions[g] = data[i]
+glasser_regions[groups[region_id]] = 1
+glasser_regions[groups[1]] = 2
+glasser_regions[groups[2]] = 3
+
+vert = cortex.Vertex(glasser_regions, 'fsaverage')
+im, extents = cortex.quickflat.make_flatmap_image(vert)
+
+fig = plt.figure()
+plt.imshow(im, cmap=plt.get_cmap('viridis'))
+plt.title(f"region: {region_id}")
+plt.savefig("./locate_glasser")
+plt.close(fig)
+
 
 sys.exit(0)
 
 
-vgg_path = '/fast/seagie/data/subj_2/vgg16'
-betas_path = '/fast/seagie/data/subj_2/betas_averaged'
 
-df = pd.read_csv('./TrainData/subj02_conditions.csv')
-unq_keys, shr_keys = loader.get_nsd_keys("", subject="subj02")
+#
+# Check coco info related to mscoco image_id
+#
 
+nsd_loader = NSDAccess("/home/seagie/NSD3/")
+nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
+print("NSDAccess loader initialized ... ")
 
-nsd_key = np.concatenate((unq_keys, shr_keys))
+# Captions
+target = nsd_loader.read_image_coco_info([key-1])
+print(target)
+raise
+print(target[0]['caption'])
 
-betas_batch = np.zeros((1,327684), dtype=np.float32) 
-
-vgg_batch = np.zeros((10000, 4096), dtype=np.float32)
-
-for i, key in enumerate(nsd_key):
-    with open(f"{vgg_path}/SUB2_KID{key}.npy", "rb") as f:
-        vgg_batch[i,:] = np.load(f)
-
-with open(f"{betas_path}/subj02_KID{nsd_key[0]}.npy", "rb") as f:
-    betas_batch[0, :] = np.load(f)
-
-print("betas 0 norm:", np.linalg.norm(betas_batch[0]))
-
-## VGG analysis 
-vgg_avg = np.mean(vgg_batch, axis=0)
-
-print("max", "|", "min", "|", "avg", "|", "std")
-print(np.max(vgg_avg), "|", np.min(vgg_avg), "|", np.mean(vgg_avg), "|", np.std(vgg_avg))
-
-print("vgg avg norm:", np.linalg.norm(vgg_avg))
-
+# Image
+img = nsd_loader.read_images(key-1)
 fig = plt.figure()
-plt.plot(vgg_avg)
-plt.savefig('./vgg_avg.png')
+plt.imshow(img)
+plt.title(f"key: {key}")
+plt.savefig(f"./temp_img_key{key}.png")
 plt.close(fig)
-
-
-### z score data
-vgg_zscore = stats.zscore(vgg_batch, axis=1)
-print("vgg_zscore:", vgg_zscore.shape)
-
-print("max", "|", "min", "|", "avg", "|", "std")
-print(np.max(vgg_zscore), "|", np.min(vgg_zscore), "|", np.mean(vgg_zscore), "|", np.std(vgg_zscore))
-
-vgg_zscore_avg = np.mean(vgg_zscore, axis=0)
-
-
-fig = plt.figure()
-plt.plot(vgg_zscore_avg)
-plt.savefig('./vgg_zscore_avg.png')
-plt.close(fig)
-
-
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.plot(betas_batch[0], color='b', alpha = 0.6)
-ax2 = ax.twiny()
-ax2.plot(vgg_zscore[0], color='r', alpha = 0.6)
-plt.savefig('./nsd_6_betas_vgg.png')
-plt.close(fig)
-
-
-

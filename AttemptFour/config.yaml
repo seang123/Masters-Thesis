@@ -1,9 +1,13 @@
 ---
  # Name the current run
- run: test_2
+ run: attention_loss
 
  info: | 
-     testing if attention weight scores sum to 1 across time for a region i
+     removed the relu on the attention layers
+     attention loss target is 1
+     using layer norm lstm
+     adaptive gradient clipping
+     subject 2
 
  # Data stores
  dataset:
@@ -16,19 +20,19 @@
  seed: 42
 
  # Training
- epochs: 50
+ epochs: 25
  batch_size: 64
  max_length: 13
  optimizer: Adam
  alpha: 0.0001
- clipnorm: 1
+ clipnorm: 0.1
  decay: 0 #1.0e-4
 
- dropout_input: 0 #0.1 # 0.17
- dropout_features: 0 #0.33 # 0.18
- dropout_text: 0 # 0.25 # 0.01
- dropout_lstm: 0 # 0.5
- dropout_attn: 0 #0.25
+ dropout_input: 0 # 0.1 #0.1 # 0.17
+ dropout_features: 0 # 0.2 #0.33 # 0.18
+ dropout_text: 0 #0.2 # 0.25 # 0.01
+ dropout_lstm: 0 # 0.2 # 0.5
+ dropout_attn: 0 # 0.2 #0.25
 
  input_reg: 0.01 # 0.002         # scientific notation requires decimal notation - x.0e
  attn_reg: 0.01
@@ -45,7 +49,7 @@
  # Model size 
  units: 512 # lstm
  attn_units: 32
- group_size: 64
+ group_size: 32
  embedding_features: 512
  embedding_text: 512
  top_k: 5000

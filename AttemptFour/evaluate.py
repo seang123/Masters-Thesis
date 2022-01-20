@@ -1,10 +1,10 @@
-
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import yaml
 import pandas as pd
 import time
+import json
 import os, sys
 import tensorflow as tf
 import numpy as np
@@ -16,8 +16,11 @@ from nsd_access import NSDAccess
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu, corpus_bleu
 from tabulate import tabulate
 import argparse
+import nibabel as nb
+import cortex
+from itertools import groupby
 
-gpu_to_use = 0
+gpu_to_use = 2
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -27,6 +30,7 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 parser = argparse.ArgumentParser(description='Evaluate NIC model')
 parser.add_argument('--dir', type=str, required=True)
+parser.add_argument('--e', type=int, required=True)
 args = parser.parse_args()
 
 #with open("./Log/attention_test_loader_2/config.yaml", "r") as f:
@@ -42,7 +46,7 @@ tf.random.set_seed(config['seed'])
 
 ## Parameters
 vocab_size = config['top_k'] + 1
-batch_size = 32
+batch_size = 128
 
 if not os.path.exists(out_path):
     os.makedirs(out_path)
@@ -52,14 +56,17 @@ else:
 
 
 ## Load data
-tokenizer, _ = loader.build_tokenizer([2], config['top_k'])
 
 train_keys, val_keys = loader.get_nsd_keys('2')
 print("train_keys:", train_keys.shape)
 print("val_keys:", val_keys.shape)
 
+tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
+
 train_pairs = loader.create_pairs(train_keys)
 val_pairs   = loader.create_pairs(val_keys)
+print(f"train_pairs: {len(train_pairs)}")
+print(f"val_pairs  : {len(val_pairs)}")
 
 def remove_dup_pairs(pairs):
     """ Remove duplicates from the pairs list, based on NSD key """
@@ -68,8 +75,6 @@ def remove_dup_pairs(pairs):
 
 train_pairs = remove_dup_pairs(train_pairs)
 val_pairs   = remove_dup_pairs(val_pairs)
-
-np.random.shuffle(val_pairs)
 
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
@@ -85,6 +90,7 @@ val_generator = generator.DataGenerator(
         pre_load_betas=False,
         shuffle=False, 
         training=False)
+print("len generator:", len(val_generator))
 
 #x = val_generator[0]
 #x2 = val_generator[1]
@@ -95,8 +101,8 @@ print("data loaded successfully")
 model = lc_NIC.NIC(
         #loader.get_groups(config['embedding_features'])[0],
         #loader.get_groups(config['embedding_features'])[1],
-        loader.get_groups(32)[0],
-        loader.get_groups(32)[1],
+        loader.get_groups(config['group_size'])[0],
+        loader.get_groups(config['group_size'])[1],
         config['units'],
         config['embedding_features'], 
         config['embedding_text'],
@@ -123,8 +129,9 @@ print("model built")
 
 
 ## Restore model from Checkpoint
-model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
-model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep010.h5"
+#model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-latest.h5"
+#model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep032.h5"
+model_dir = f"{os.path.join(config['log'], config['run'])}/model/model-ep{args.e:03}.h5"
 
 model.load_weights(model_dir,by_name=True,skip_mismatch=True)
 #model.load_weights(model_dir)
@@ -250,7 +257,7 @@ def eval_full_set():
     print(tabulate(table, headers=['Individual', 'Cumulative']))
     
 
-def model_eval(nr_of_batches = 1):
+def batch_eval(nr_of_batches = 1):
     """ Evaluate the model on some data
 
     Outputs
@@ -269,8 +276,10 @@ def model_eval(nr_of_batches = 1):
 
         start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
 
-        outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
-        # outputs: (max_len, bs, 1, 5001)
+        outputs, attention_scores = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
+        # outputs: (max_len, bs, 1, 5001), (max_len, bs, 180, 1)
+
+        attention_scores = np.squeeze(attention_scores, axis=-1)
 
         captions = np.squeeze(outputs)
         #outputs = np.squeeze(outputs, axis = 2) # (max_len, bs, 5001)
@@ -279,8 +288,7 @@ def model_eval(nr_of_batches = 1):
         captions = np.transpose(captions, axes=[1,0]) # (bs, max_len)
         captions = tokenizer.sequences_to_texts(captions)
 
-        # TODO: Remove everything after <end> token
-        
+
         bleu = []
         for i, cap in enumerate(captions):
             bleu.append(compute_bleu((cap, keys[i])))
@@ -298,28 +306,140 @@ def model_eval(nr_of_batches = 1):
                 pass
             return " ".join(x)
 
+        candidate_captions = []
+
         for k, v in enumerate(captions):
+            candidate_captions.append({"image_id":keys[k], "caption": remove_pad(v)})
             print()
             print("Candidate:", remove_pad(v))
             print("Target:   ", remove_pad(target_sentences[k]))
             print("BLEU:     ", f"{(bleu[k][0]):.2f} {(bleu[k][1]):.2f} {(bleu[k][2]):.2f} {(bleu[k][3]):.2f}")
             print("NSD:", keys[k])
             
+            """
             img = nsd_loader.read_images(int(keys[k])-1)
             fig = plt.figure()
             plt.imshow(img)
             plt.title(f"{remove_pad(v)}\n{remove_pad(target_sentences[k])}")
             plt.savefig(f"{out_path}/img_{keys[k]}.png")
             plt.close(fig)
+            """
         
     return
 
 
+def eval_model():
+    """ Runs the generators input through the model and returns the output and attention scores """
+
+    all_outputs = []
+    all_attention_scores = []
+
+    print(len(val_generator))
+
+    for i in tqdm.tqdm(range(0, len(val_generator)+1)):
+#        sample = val_generator.__next__()
+        sample = val_generator[i]
+        features, _, a0, c0, _ = sample[0]
+        target = sample[1]
+        keys = sample[2]
+
+        start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
+
+        outputs, attention_scores = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
+        all_outputs.append(outputs)
+        all_attention_scores.append(attention_scores)
+
+    outputs = np.swapaxes(np.concatenate((all_outputs), axis=1), 0, 1)
+    attention_scores = np.swapaxes(np.concatenate((all_attention_scores), axis=1), 0, 1)
+    print("outputs:", outputs.shape)
+    print("attention scores:", attention_scores.shape)
+
+    #visualise_attention(10, attention_scores)
+
+    with open(f"{out_path}/output_captions.npy", "wb") as f:
+        np.save(f, outputs)
+    with open(f"{out_path}/attention_scores.npy", "wb") as f:
+        np.save(f, attention_scores)
+    with open(f"{out_path}/tokenizer.json", "w") as f:
+        f.write(tokenizer.to_json())
+
+
+    return outputs, attention_scores
+
+def visualise_attention(idx, attention_scores):
+    
+    attn = np.squeeze(attention_scores[idx], axis=-1) # (13, 180)
+
+    GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
+    GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
+    VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
+
+    glasser_lh = nb.load(GLASSER_LH).get_data()
+    glasser_rh = nb.load(GLASSER_RH).get_data()
+    glasser = np.vstack((glasser_lh, glasser_rh)).flatten() # (327684,)
+
+    groups = []
+    glasser_indices = np.array(range(len(glasser)))
+    for i in set(glasser):
+        group = glasser_indices[glasser == i]
+        groups.append(group)
+    groups = groups[1:]
+
+    ngroups = len(groups)
+    assert ngroups == 180
+
+    fig, axes = plt.subplots(nrows=7, ncols=2, figsize=(20, 20), sharex=True)
+    fig.subplots_adjust(wspace=0)
+    r = 0
+    c = 0
+    x = 1
+    images = []
+    sum_glasser_regions = np.zeros(glasser.shape)
+    for j in range(13):
+        data = attn[j, :]
+        glasser_regions = np.zeros(glasser.shape)
+        for i, g in enumerate(groups):
+            glasser_regions[g] = data[i]
+
+        sum_glasser_regions += glasser_regions
+
+        vert = cortex.Vertex(glasser_regions, 'fsaverage')
+        im, extents = cortex.quickflat.make_flatmap_image(vert)
+        if r >= 7:
+            r = 0
+            c = 1
+        images.append(axes[r,c].imshow(im, cmap=plt.get_cmap('viridis')))
+        axes[r,c].set_title(f"word: {x}")
+        r += 1
+        x += 1
+
+    vert = cortex.Vertex(sum_glasser_regions / ngroups, 'fsaverage')
+    im, extents = cortex.quickflat.make_flatmap_image(vert)
+    axes[r,c].imshow(im, cmap=plt.get_cmap('viridis'))
+    axes[r,c].set_title("Summed across time")
+    #axes[r,c].axis('off') # to remove empty last plot
+
+    fig.colorbar(images[0], ax=axes, orientation='horizontal', fraction=.1)
+
+    plt.savefig("./attn_glasser.png", bbox_inches='tight')
+    plt.close(fig)
+
+    return
+
+def visualise_caption(idx, key):
+    img = nsd_loader.read_images(int(keys[k])-1)
+    fig = plt.figure()
+    plt.imshow(img)
+    plt.title(f"{remove_pad(v)}\n{remove_pad(target_sentences[k])}")
+    plt.savefig(f"{out_path}/img_{keys[k]}.png")
+    plt.close(fig)
 
 if __name__ == '__main__':
-    nr_batchs = 1
-    model_eval(nr_batchs)
+    nr_batches = 1
+    #batch_eval(nr_batches)
     #eval_full_set()
+    #batch_eval(nr_batches)
+    eval_model()
 
 
 

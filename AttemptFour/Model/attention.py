@@ -12,28 +12,14 @@ class Attention(tf.keras.layers.Layer):
     def __init__(self, units, dropout, **kwargs):
         super(Attention, self).__init__()
 
-        """ old
-        self.attention = tf.keras.layers.Dense(1, **kwargs)
-        self.softmax = tf.keras.layers.Softmax(axis = -1)
-        """
         self.softmax = tf.keras.layers.Softmax(axis=1)
         self.dropout = dropout
 
         self.bn1 = tf.keras.layers.BatchNormalization()
-        self.bn2 = tf.keras.layers.BatchNormalization()
 
         self.W1 = tf.keras.layers.Dense(units, **kwargs)
         self.W2 = tf.keras.layers.Dense(units, **kwargs)
         self.V  = tf.keras.layers.Dense(1)
-
-    def soft_attention(self, features, weights):
-        """ Weighted sum of features """
-        return tf.reduce_sum((weights * features), axis=1)
-
-    def hard_attention(self, features, weights):
-        """ Highest probability feature """
-        max_weight = tf.math.argmax(weights, axis=1)
-        return features[:, max_weight]
 
     def call(self, hidden, features, training=False):
         """ Forward pass """
@@ -49,11 +35,10 @@ class Attention(tf.keras.layers.Layer):
         attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
 
         score = self.V(attention_hidden_layer) # (bs, regions, 1)
-        score = self.bn2(score)
 
         attention_weights = self.softmax(score) # (bs, regions, 1)
 
-        context_vector = self.soft_attention(features, attention_weights) # (bs, embed_dim)
+        context_vector = tf.reduce_sum(attention_weights * features, axis=1) # (bs, embed_dim)
 
         return context_vector, attention_weights
 

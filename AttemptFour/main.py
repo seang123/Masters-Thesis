@@ -5,6 +5,7 @@ import pandas as pd
 import os, sys
 import csv
 import tensorflow as tf
+from tensorflow.keras.optimizers import schedules
 import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
@@ -18,7 +19,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 0
+gpu_to_use = 2
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -83,15 +84,25 @@ val_pairs = np.array(loader.create_pairs(val_keys))
 print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 
-print(train_pairs[0:20])
-raise
-
 tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
 
+#cos_decay = schedules.CosineDecay(initial_learning_rate=0.001, decay_steps=1000, alpha=0.01, name=None )
+initial_lr = 0.1 * (config['batch_size'] / 256)
+lr_decay = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.1, decay_steps=1000, decay_rate=0.009, staircase=False, name=None)
+#lr_decay = tf.keras.experimental.LinearCosineDecay(initial_learning_rate=0.001, decay_steps=1000, num_periods=0.5, alpha=0.0, beta = 1e-3, name=None)
+
+def lr_schedule(step):
+    # final lr = initial_lr * decay_rate
+    decay_steps = 10
+    decay_rate = 0.01 
+    inital_lr = 0.01
+    final_lr = 0.0001
+    return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
+
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.01, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -185,10 +196,13 @@ file_writer = tf.summary.create_file_writer(logdir)
 #val_generator_pred = create_generator(val_pairs, False)
 #predict_callback = Predict.Predict(val_generator_pred, tokenizer, file_writer, config['max_length'], config['units'])
 
+lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lr_schedule, verbose = 0)
 
 _callbacks = [
         #batch_loss_writer, 
         #epoch_loss_writer, 
+        lr_scheduler,
         loss_history,
         tensorboard_callback, 
         #reduce_lr,
@@ -213,7 +227,7 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            pre_load_betas=True,#False,
+            pre_load_betas=False,
             shuffle=True, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 

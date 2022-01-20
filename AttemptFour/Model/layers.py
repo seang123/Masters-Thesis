@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import LeakyReLU, ELU
 from tensorflow.keras.initializers import HeNormal
+import tensorflow_addons as tfa
 
 class LocallyDense(tf.keras.layers.Layer):
     '''
@@ -11,7 +12,7 @@ class LocallyDense(tf.keras.layers.Layer):
     concatenated to a single tensor such that locality in the
     separate groups is conserved. Input groups may be overlapping.
     '''
-    def __init__(self, input_groups, output_groups, **kwargs):
+    def __init__(self, input_groups, output_groups, dropout, **kwargs):
         '''
         input_groups    -   list of n tensors. Each tensor contains indices
                             of the input dimensions belonging to goup n
@@ -28,16 +29,20 @@ class LocallyDense(tf.keras.layers.Layer):
         self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
         self.input_groups = input_groups
 
-        self.bn = tf.keras.layers.BatchNormalization()
+        self.dropout = dropout
+
+        self.bn = tf.keras.layers.BatchNormalization() # axis = 1 or -1 seems to give equivalent results
 
 
     def call(self, x, training=False):
         """ Forward pass """
-        out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
+        out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] 
+        # out => regions * (bs, embed_dim)
 
         out = tf.convert_to_tensor(out)
-        out = tf.transpose(out, perm=[1,0,2]) # (bs, 41, dim)
+        out = tf.transpose(out, perm=[1,0,2]) # (bs, 180, dim)
         out = self.bn(out)
+        out = self.dropout(out)
 
         return out  
 

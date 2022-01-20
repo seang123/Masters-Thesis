@@ -59,5 +59,5 @@ class LocallyDense(tf.keras.layers.Layer):
         #out = self.dropout(latent, training=training)
         out = self.dense_3(out, training=training)
 
-        return out, latent
+        return out
 

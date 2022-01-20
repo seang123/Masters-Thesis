@@ -184,6 +184,7 @@ figures/
 /DeepRNN/
 
 *.png
+/AttemptFour/glasser_viz/
 
 /AttemptFour/Logs/
 /AttemptFour/tb_logs/
