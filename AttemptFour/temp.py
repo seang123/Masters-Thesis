@@ -12,6 +12,37 @@ import cortex
 from nsd_access import NSDAccess
 
 
+
+with open("./Log/separate_hemispheres_attn_loss/eval_out/attention_scores.npy", "rb") as f:
+    attn_scores_loss = np.load(f)
+with open("./Log/separate_hemispheres_no_attn_loss/eval_out/attention_scores.npy", "rb") as f:
+    attn_scores_no_loss = np.load(f)
+
+attn_scores_loss = np.log(np.squeeze(attn_scores_loss, axis=-1))
+attn_scores_no_loss = np.log(np.squeeze(attn_scores_no_loss, axis=-1))
+print(attn_scores_loss.shape)
+print(attn_scores_no_loss.shape)
+
+print("mean across trials")
+attn_scores_loss = np.mean(np.mean(attn_scores_loss, axis=0), 0)
+attn_scores_no_loss = np.mean(np.mean(attn_scores_no_loss, axis=0), 0)
+print(attn_scores_loss.shape)
+print(attn_scores_no_loss.shape)
+
+t_zero_loss = np.argsort(attn_scores_loss[:])
+t_zero_no_loss = np.argsort(attn_scores_no_loss[:])
+
+print(t_zero_loss[:25])
+print(t_zero_no_loss[:25])
+
+score = 0
+for i in range(len(t_zero_loss)):
+    if t_zero_loss[i] == t_zero_no_loss[i]:
+        score += 1
+print("score:", score, score/len(t_zero_loss))
+
+raise
+
 conditions = pd.read_csv(f"./TrainData/subj02_conditions.csv")
 val_keys = conditions.loc[conditions['is_shared'] == 1]
 val_keys = val_keys.reset_index(drop=True)

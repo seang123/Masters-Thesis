@@ -12,7 +12,7 @@ class LocallyDense(tf.keras.layers.Layer):
     concatenated to a single tensor such that locality in the
     separate groups is conserved. Input groups may be overlapping.
     '''
-    def __init__(self, input_groups, output_groups, dropout, **kwargs):
+    def __init__(self, groups, dropout, **kwargs):
         '''
         input_groups    -   list of n tensors. Each tensor contains indices
                             of the input dimensions belonging to goup n
@@ -26,13 +26,18 @@ class LocallyDense(tf.keras.layers.Layer):
         '''
         super(LocallyDense, self).__init__()
 
-        self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in output_groups]
-        self.input_groups = input_groups
+        in_groups, out_groups = groups
+        assert len(in_groups) == len(out_groups), "Input groups don't match ouput groups"
+
+        # Create a layer for each output group
+        self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
+        assert len(self.dense_layers) == 360, "Incorrect nr. of encoder layers"
+
+        # Combine the input groups
+        self.input_groups = in_groups
 
         self.dropout = dropout
-
         self.bn = tf.keras.layers.BatchNormalization() # axis = 1 or -1 seems to give equivalent results
-
 
     def call(self, x, training=False):
         """ Forward pass """

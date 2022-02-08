@@ -9,7 +9,7 @@ GUSE_model_path = './GUSE_model'
 nsd_keys = './TrainData/subj02_conditions.csv'
 captions_path = '/fast/seagie/data/subj_2/captions/'
 
-gpu_to_use = 2
+gpu_to_use = 0
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -96,6 +96,20 @@ def create_average(keys):
         print(f"batch: {i}", end="\r")
             
 
+def embed_caption(captions: list) -> np.array:
+    """ Takes a list holding the inference caption and returns the GUSE embedding 
+    Parameters:
+    -----------
+        captions : list(str)
+            list of list of captions strings [[stringA1, stringA2], [stringB1, ...]]
+    Returns:
+    --------
+        guse : ndarray
+            GUSE embedding of captions
+    """
+    GUSE_model = get_google_encoder(GUSE_model_path)
+    guse = np.array([np.array(get_GUSE_embeddings(GUSE_model_path, x, GUSE_model)) for x in [captions]])
+    return guse
 
 if __name__ == '__main__':
     """
@@ -105,12 +119,16 @@ if __name__ == '__main__':
 
 
     df = pd.read_csv(f"{nsd_keys}")
-    nsd_keys = list( df['nsd_key'].values )
+    #nsd_keys = list( df['nsd_key'].values )
+    nsd_keys = [6, 37]
 
     sample_captions = get_captions(nsd_keys)  
     print("sample_captions", len(sample_captions))
+    print(sample_captions)
 
-    create_single(nsd_keys)
+    GUSE_model = get_google_encoder(GUSE_model_path)
+    guse = np.array([np.array(get_GUSE_embeddings(GUSE_model_path, x, GUSE_model)) for x in sample_captions])
+    print(guse.shape)
     raise 
 
     # Average the guse

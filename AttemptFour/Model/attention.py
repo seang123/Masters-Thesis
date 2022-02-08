@@ -32,7 +32,7 @@ class Attention(tf.keras.layers.Layer):
         ) # (bs, regions, attn_units)
 
         attention_hidden_layer = self.bn1(attention_hidden_layer)
-        attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
+        #attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
 
         score = self.V(attention_hidden_layer) # (bs, regions, 1)
 

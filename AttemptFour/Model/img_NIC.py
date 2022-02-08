@@ -20,6 +20,7 @@ from . import attention
 from . import localDense
 from . import fullyConnected
 from . import img_localDense
+from . import agc
 import sys
 import numpy as np
 from collections import defaultdict
@@ -47,14 +48,16 @@ class NIC(tf.keras.Model):
         self.dropout_input = Dropout(dropout_input)
         self.dropout = Dropout(dropout_features)
         self.dropout_text = Dropout(dropout_text)
+        self.dropout_lstm = Dropout(dropout_features)
 
         #self.relu = ReLU()
         self.MSE = tf.keras.losses.MeanSquaredError()
 
+
+        """
         # For use with:  attention
-        self.dropout_attn = Dropout(dropout_attn)
         self.dense_in = img_localDense.LocallyDense(
-            n_features = 64,
+            n_features = 512, # how many patches 
             embed_dim = group_size,
             dropout = None,
             activation=LeakyReLU(0.2),
@@ -62,16 +65,41 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
         )
+        """
 
+        # No attention model 
+        self.bn = BatchNormalization()
+        #self.bn2 = BatchNormalization()
+        self.dense_in_1 = Dense(
+            512,
+            activation=LeakyReLU(0.2),
+            kernel_regularizer=self.l2_in,
+            kernel_initializer='he_normal',
+            bias_initializer='zeros',
+            name = 'first_dense'
+        )
+        """
+        self.dense_in_2 = Dense(
+            32,
+            activation=LeakyReLU(0.2),
+            kernel_regularizer=self.l2_in,
+            kernel_initializer='he_normal',
+            bias_initializer='zeros',
+            name = 'second_dense'
+        )
+        """
+
+        """
+        #self.dropout_attn = Dropout(dropout_attn)
         self.attention = attention.Attention(
             units = attn_units,
-            dropout = self.dropout_attn,
+            dropout = None, #self.dropout_attn,
             activation= LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
-
+        """
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
         # Text input
@@ -118,9 +146,9 @@ class NIC(tf.keras.Model):
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
-        return self.call_attention(data, training)
+        #return self.call_attention(data, training)
         #return self.call_lc(data, training)
-        #return self.call_fc(data, training)
+        return self.call_fc(data, training)
 
 
     def call_attention(self, data, training=False):
@@ -141,17 +169,21 @@ class NIC(tf.keras.Model):
         a = tf.convert_to_tensor(a0) # (bs, embed_dim)
         c = tf.convert_to_tensor(c0)
 
+        attention_scores = []
         output = []
         # Pass through LSTM
         for i in range(text.shape[1]):
             # compute attention context
-            context, _ = self.attention(a, features, training=training)
+            context, attn_scores = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
+
+            attention_scores.append(attn_scores)
 
             # combine context with word
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+            a = self.dropout_lstm(a, training=training)
 
             output.append(a)
 
@@ -160,14 +192,23 @@ class NIC(tf.keras.Model):
         # Convert to vocab
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
-        return output
+        return output, tf.convert_to_tensor(attention_scores)
 
     def call_fc(self, data, training=False):
-        img_input, text_input, a0, c0, _ = data
+        """ Call fully-connected model
+
+        If pre-training on VGG16 FC for betas model, the 4096 need to be mapped to 32 units and passed to the LSTM on every time step
+        """
+        img_input, text_input, a0, c0  = data
 
         img_input = self.dropout_input(img_input, training=training)
 
-        features = self.dense_in(img_input, training=training)
+        # (4096,) -> (512,) -> (32,) -> (1, 32)
+        features = self.dense_in_1(img_input, training=training)
+        features = self.bn(features)
+        features = self.dropout(features, training=training)
+        #features = self.dense_in_2(features, training=training)
+        #features = self.bn2(features)
         features = self.expand(features)
 
         # Embed the caption vector
@@ -177,15 +218,20 @@ class NIC(tf.keras.Model):
         a0 = tf.convert_to_tensor(a0)
         c0 = tf.convert_to_tensor(c0)
 
-        sample = tf.concat([features, text], axis=1) # (bs, 1, embed_features + embed_text)
+        # Replicate the (32,) feature array max_len times - this means we concat the image at each time step, 
+        #but is neccessary to match the weights shape for the betas_attention model
+        #features = tf.squeeze(tf.repeat(features[:, tf.newaxis, :, :], text.shape[1], axis=1), axis=2)
+        #sample = tf.concat([features, text], axis=-1) # (bs, 1, embed_features + embed_text) NOTE: axis=1 if embedding shapes match
+        sample = tf.concat([features, text], axis=1) # (bs, max_len + 1, embed_dim)
 
         # Pass through LSTM
-        A, _, _ = self.lstm(features, initial_state=[a0, c0], training=training)
+        A, _, _ = self.lstm(sample, initial_state=[a0, c0], training=training)
+        A = self.dropout_lstm(A, training=training)
 
         # Convert to vocab
         output = self.dense_out(A)
 
-        return output
+        return output, None
 
 
     @tf.function()
@@ -195,7 +241,7 @@ class NIC(tf.keras.Model):
         Parameters
         ----------
             data : tuple
-                holds the features, caption, init_state, guse, and target 
+                holds the ((features, captions, init_state, init_state), target)
 
         Returns
         -------
@@ -209,22 +255,26 @@ class NIC(tf.keras.Model):
         cross_entropy_loss = 0
         accuracy = 0
         total_loss = 0
+        attn_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
 
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            prediction = self(
+            prediction, attention_scores = self(
                     (
                         data[0]
                     ), 
                     training=True
             ) # (bs, max-length, vocab_size)
 
-
-            # latent loss
-            #latent_loss = self.MSE(guse, latent)
+            """
+            attn_across_time = tf.reduce_sum(tf.squeeze(attention_scores,axis=-1), axis=1)
+            #attention_target = tf.divide(tf.ones(attn_across_time.shape, dtype=tf.float32), attention_scores.shape[2])# attention_scores.shape[2])
+            attention_target = tf.ones(attn_across_time.shape, dtype=tf.float32)
+            attn_loss = self.MSE(attention_target, attn_across_time)
+            """
 
             # Cross-entropy loss & Accuracy
             for i in range(0, target.shape[1]):
@@ -241,13 +291,13 @@ class NIC(tf.keras.Model):
             # Sum losses for backprop
             total_loss += cross_entropy_loss
             total_loss += l2_loss
-            #total_loss += latent_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
+        gradients = agc.adaptive_clip_grad(trainable_variables, gradients, clip_factor=0.01, eps = 1e-3)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
-        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy}#, grad_sum
+        return {"loss": cross_entropy_loss, 'L2': l2_loss, 'accuracy': accuracy, "attention": attn_loss, 'lr': self.optimizer.lr}
 
     @tf.function
     def test_step(self, data):
@@ -269,19 +319,22 @@ class NIC(tf.keras.Model):
         l2_loss   = 0
         cross_entropy_loss = 0
         accuracy  = 0
-        latent_loss = 0
+        attn_loss = 0
 
         # Call model on sample
-        prediction = self(
+        prediction, attention_scores = self(
                 (
                     data[0]
                 ),
                 training=False
         )
 
-        # latent loss
-        #latent_loss = self.MSE(guse, latent)
-
+        """
+        attn_across_time = tf.reduce_sum(tf.squeeze(attention_scores,axis=-1), axis=1)
+        #attention_target = tf.divide(tf.ones(attn_across_time.shape, dtype=tf.float32), attention_scores.shape[2])# attention_scores.shape[2])
+        attention_target = tf.ones(attn_across_time.shape, dtype=tf.float32)
+        attn_loss = self.MSE(attention_target, attn_across_time)
+        """
 
         # Cross-entropy & Accuracy
         for i in range(0, target.shape[1]):
@@ -295,7 +348,7 @@ class NIC(tf.keras.Model):
         # Regularization losses
         l2_loss = tf.add_n(self.losses)
 
-        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy}
+        return {"loss": cross_entropy_loss, "L2": l2_loss, 'accuracy': accuracy, 'attention': attn_loss}
 
     @tf.function
     def loss_function(self, real, pred):

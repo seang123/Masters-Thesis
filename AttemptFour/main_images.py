@@ -31,9 +31,6 @@ with open("./config.yaml", "r") as f:
 run_name = config['run']
 run_path = os.path.join(config['log'], run_name)
 
-## Parameters
-vocab_size = config['top_k'] + 1
-
 if not os.path.exists(run_path):
     os.makedirs(run_path)
     print(f"Creating training Log folder: {run_path}")
@@ -49,33 +46,43 @@ logging.basicConfig(filename=f'{run_path}/log.log', filemode='w', level=logging.
 np.random.seed(config['seed'])
 tf.random.set_seed(config['seed'])
 
+## Parameters
+vocab_size = config['top_k'] + 1
 
-# Load data
-#data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys = loader.load_data_img(top_k = config['top_k'], _max_length = config['max_length'], train_test_split = 0.9)
-
+# Create train-val keys
+subj2_train_keys, subj2_val_keys = loader.get_nsd_keys('2')
 all_keys = np.arange(1, 73001)
-np.random.shuffle(all_keys)
-train_keys = all_keys[:70000]
-val_keys = all_keys[70000:]
+#train_keys = [i for i in all_keys if i not in set(subj2_val_keys)]
+#print("len(train_keys)", len(train_keys))
+#val_keys = subj2_val_keys
+#print("len(val_keys)", len(val_keys))
 
-train_pairs = np.array(loader.create_pairs(train_keys))
-val_pairs = np.array(loader.create_pairs(val_keys))
+# Create train pairs
+train_pairs = np.array(loader.create_pairs(subj2_train_keys))
+val_pairs = np.array(loader.create_pairs(subj2_val_keys))
+print("train_pairs:", train_pairs.shape)
+print("val_pairs:  ", val_pairs.shape)
 print("Captions created")
 
 tokenizer, _ = loader.build_tokenizer(all_keys, config['top_k'])
 print("Tokenizer built")
 
 
-
 def create_generator(data, cap, keys, training):
     return loader.data_generator(data, cap, keys, config['units'], vocab_size, config['batch_size'], training=training)
 
-print("data loaded successfully")
+print("Caption data successfully loaded")
 
-
+def lr_schedule(step):
+    decay_steps = 10
+    decay_rate = 0.01 
+    inital_lr = 0.01
+    final_lr = 0.0001
+    #return 0.0001
+    return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
 
 # Setup optimizer 
-optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'])
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
 loss_object = tf.keras.losses.CategoricalCrossentropy(
         from_logits=False,
         reduction='none'
@@ -101,7 +108,7 @@ model = img_NIC.NIC(
         config['output_reg']
         )
 model.compile(optimizer, loss_object, run_eagerly=True)
-#print(model.summary())
+
 
 # Setup Checkpoint handler
 """
@@ -161,18 +168,21 @@ tensorboard_callback = TensorBoard(
 
 loss_history = EpochLoss.LossHistory(f"{run_path}/loss_history.csv", f"{run_path}")
 
+lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lr_schedule, verbose = 0)
+
 _callbacks = [
         loss_history,
         checkpoint_best, 
         checkpoint_latest,
         tensorboard_callback,
+        lr_scheduler,
 ]
 
 callbacks = tf.keras.callbacks.CallbackList(
             _callbacks, add_history=True, model=model)
 
 logs = {}
-
 
 def dotfit():
     logging.info("training with .fit()")
@@ -183,7 +193,7 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            pre_load_betas=True,
+            pre_load_betas=False,
             shuffle=True, training=True)
     val_generator = generator.DataGenerator(
             val_pairs, 
@@ -192,19 +202,25 @@ def dotfit():
             config['units'], 
             config['max_length'], 
             vocab_size, 
-            pre_load_betas=True,
+            pre_load_betas=False,
             shuffle=False, training=True)
 
     model.fit(
             train_generator,
             epochs=config['epochs'],
-            steps_per_epoch=len(train_pairs)//config['batch_size'],
+            steps_per_epoch= len(train_pairs)//config['batch_size'],
             batch_size=config['batch_size'],
             callbacks=_callbacks,
             validation_data = val_generator,
             validation_steps = len(val_pairs)//config['batch_size'],
             initial_epoch = 0
     )
+    """
+    print("--- Weights ---")
+    m_weights = model.get_weights()
+    np.save(f"{run_path}/pre_train_weights.npy", m_weights, allow_pickle=True)
+    #print(model.get_layer('lstm'))
+    """
     return
 
 

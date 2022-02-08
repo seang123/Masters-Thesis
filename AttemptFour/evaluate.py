@@ -20,7 +20,7 @@ import nibabel as nb
 import cortex
 from itertools import groupby
 
-gpu_to_use = 2
+gpu_to_use = 0
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -61,7 +61,8 @@ train_keys, val_keys = loader.get_nsd_keys('2')
 print("train_keys:", train_keys.shape)
 print("val_keys:", val_keys.shape)
 
-tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
+tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
+#tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
 train_pairs = loader.create_pairs(train_keys)
 val_pairs   = loader.create_pairs(val_keys)
@@ -101,8 +102,9 @@ print("data loaded successfully")
 model = lc_NIC.NIC(
         #loader.get_groups(config['embedding_features'])[0],
         #loader.get_groups(config['embedding_features'])[1],
-        loader.get_groups(config['group_size'])[0],
-        loader.get_groups(config['group_size'])[1],
+        #loader.get_groups(config['group_size'])[0],
+        #loader.get_groups(config['group_size'])[1],
+        loader.get_groups(config['group_size'], True),
         config['units'],
         config['embedding_features'], 
         config['embedding_text'],
@@ -124,7 +126,7 @@ x = np.random.uniform(0, 1, size=(config['batch_size'], config['input']['full'])
 y = np.random.randint(0, 2, size=(config['batch_size'], config['max_length']), dtype=np.int32)
 z1 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
 z2 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
-model((x,y,z1,z2, None), training=False)
+model((x,y,z1,z2), training=False)
 print("model built")
 
 
@@ -339,7 +341,7 @@ def eval_model():
     for i in tqdm.tqdm(range(0, len(val_generator)+1)):
 #        sample = val_generator.__next__()
         sample = val_generator[i]
-        features, _, a0, c0, _ = sample[0]
+        features, _, a0, c0 = sample[0]
         target = sample[1]
         keys = sample[2]
 

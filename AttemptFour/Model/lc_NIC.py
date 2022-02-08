@@ -36,7 +36,7 @@ class NIC(tf.keras.Model):
     Not just visual cortex, but visual cortex split into 41 regions
     """
 
-    def __init__(self, in_groups, out_groups, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout_features, dropout_text, dropout_attn, dropout_lstm, input_reg, attn_reg, lstm_reg, output_reg):
+    def __init__(self, groups, units, embedding_features, embedding_text, attn_units, vocab_size, max_length, dropout_input, dropout_features, dropout_text, dropout_attn, dropout_lstm, input_reg, attn_reg, lstm_reg, output_reg):
         """ Initialisation method. Builds the keras.Model """
         super(NIC, self).__init__()
 
@@ -80,8 +80,9 @@ class NIC(tf.keras.Model):
 
         # For use with:  attention
         self.dense_in = layers.LocallyDense(
-            in_groups, 
-            out_groups, 
+            #in_groups, 
+            #out_groups, 
+            groups,
             dropout = self.dropout,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
@@ -120,6 +121,7 @@ class NIC(tf.keras.Model):
             dropout=dropout_lstm,
             name = 'lstm'
         )
+        #self.lstm.trainable=False # freeze layer 
         """
         self.lnLSTMCell = LayerNormLSTMCell(units,
                 kernel_regularizer=self.l2_lstm,
@@ -143,6 +145,7 @@ class NIC(tf.keras.Model):
             ),
             name = 'time_distributed_softmax'
         )
+        #self.dense_out.trainable=False # freeze layer 
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
@@ -153,7 +156,7 @@ class NIC(tf.keras.Model):
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
-        img_input, text_input, a0, c0, _ = data
+        img_input, text_input, a0, c0 = data
 
         img_input = self.dropout_input(img_input, training=training)
 
@@ -230,7 +233,7 @@ class NIC(tf.keras.Model):
         return output, None
 
     def call_fc(self, data, training=False):
-        img_input, text_input, a0, c0, _ = data
+        img_input, text_input, a0, c0 = data
 
         img_input = self.dropout_input(img_input, training=training)
 
@@ -271,7 +274,7 @@ class NIC(tf.keras.Model):
         """
 
         target = data[1] # (batch_size, max_length, 5000)
-        guse = data[0][-1]
+        #guse = data[0][-1]
 
         l2_loss = 0
         cross_entropy_loss = 0
@@ -313,7 +316,7 @@ class NIC(tf.keras.Model):
             # Sum losses for backprop
             total_loss += cross_entropy_loss
             total_loss += l2_loss
-            total_loss += attn_loss
+            #total_loss += attn_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
@@ -355,7 +358,7 @@ class NIC(tf.keras.Model):
         """
         
         target = data[1]
-        guse = data[0][-1]
+        #guse = data[0][-1]
 
         l2_loss   = 0
         cross_entropy_loss = 0

@@ -27,13 +27,14 @@ betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/fast/seagie/data/captions/"
 betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
 USE_ENTIRE_CORTEX = True
+SEPARATE_HEMISPHERES = True
 
 ## ====== Glasser ======
 GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
 GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
 VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
 
-glasser_lh = nb.load(GLASSER_LH).get_data()
+glasser_lh = nb.load(GLASSER_LH).get_data() # 163_842 values in the range [0, 180]
 glasser_rh = nb.load(GLASSER_RH).get_data()
 
 glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
@@ -48,10 +49,31 @@ visual_parcel_list = list(visual_parcels.values.flatten())
 if USE_ENTIRE_CORTEX == False:
     ## If using only visual cortex
     groups = []
-    glasser_indices = np.array(range(len(glasser)))
+    glasser_indices = np.array(range(len(glasser))) # [0 to 163841]
     for i in visual_parcel_list:
         group = glasser_indices[glasser==i]
         groups.append(group)
+elif SEPARATE_HEMISPHERES: 
+    ## Separate Glasser regions into hemisphers - 360 regions
+    glasser_lh = glasser_lh.flatten()
+    glasser_rh = glasser_rh.flatten()
+    # Right
+    glasser_indices_rh = np.array(range(len(glasser_rh))) # [0 to 163_841]
+    groups_rh = []
+    for i in set(glasser_rh):
+        groups_rh.append(glasser_indices_rh[glasser_rh == i])
+    # Left 
+    glasser_indices_lh = np.array(range(len(glasser_lh))) # [0 to 163_841]
+    groups_lh = []
+    for i in set(glasser_lh):
+        groups_lh.append(glasser_indices_lh[glasser_lh == i])
+    print("groups_lh:", len(groups_lh))
+    print("groups_rh:", len(groups_rh))
+    print("Avg. group size lh:     ", np.mean([len(g) for g in groups_lh[1:]]))
+    print("Avg. group size rh:     ", np.mean([len(g) for g in groups_rh[1:]]))
+    print("max group size lh | rh: ", np.max([len(g) for g in groups_lh[1:]]), np.max([len(g) for g in groups_rh[1:]]))
+    print("min group size lh | rh: ", np.min([len(g) for g in groups_lh[1:]]), np.min([len(g) for g in groups_rh[1:]]))
+    groups = groups_lh[1:] + groups_rh[1:]
 else:
     ## If using entire cortex
     groups = []
@@ -59,14 +81,16 @@ else:
     for i in set(glasser):
         group = glasser_indices[glasser == i]
         groups.append(group)
+    groups = groups[1:]
+    print("sum of groups sizes:", sum([len(g) for g in groups]))
+    print("Avg. group size:    ", np.mean([len(g) for g in groups]))
+    print("nr of groups        ", len([len(g) for g in groups]))
 
-print("sum of groups sizes:", sum([len(g) for g in groups]))
-print("Avg. group size:    ", np.mean([len(g) for g in groups]))
-print("nr of groups        ", len([len(g) for g in groups]))
+def get_groups(out_dim, separate_hemi=False):
+    return groups, [out_dim for i in range(0,len(groups))]
+        #return groups[1:], [len(g)//50 for g in groups[1:]]
+        #return groups_lh[1:], groups_rh[1:], [out_dim for i in range(1, len(groups_lh))], [out_dim for i in range(1, len(groups_rh))]
 
-def get_groups(out_dim):
-    return groups[1:], [out_dim for i in range(1,len(groups))]
-    #return groups[1:], [len(g)//50 for g in groups[1:]]
 ## =====================
 
 def timeit(func):

@@ -19,7 +19,7 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, 
 from collections import defaultdict
 from datetime import datetime
 
-gpu_to_use = 2
+gpu_to_use = 0
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -84,7 +84,8 @@ val_pairs = np.array(loader.create_pairs(val_keys))
 print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 
-tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
+tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
+#tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
 
 #cos_decay = schedules.CosineDecay(initial_learning_rate=0.001, decay_steps=1000, alpha=0.01, name=None )
@@ -98,6 +99,7 @@ def lr_schedule(step):
     decay_rate = 0.01 
     inital_lr = 0.01
     final_lr = 0.0001
+    #return 0.0001
     return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
 
 # Setup optimizer 
@@ -121,8 +123,9 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 model = lc_NIC.NIC(
         #loader.get_groups(config['embedding_features'])[0], 
         #loader.get_groups(config['embedding_features'])[1],
-        loader.get_groups(config['group_size'])[0], 
-        loader.get_groups(config['group_size'])[1],
+        #loader.get_groups(config['group_size'])[0], 
+        #loader.get_groups(config['group_size'])[1],
+        loader.get_groups(config['group_size'], separate_hemi=True),
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],
@@ -139,8 +142,34 @@ model = lc_NIC.NIC(
         config['lstm_reg'],
         config['output_reg']
         )
-
+#Compile
 model.compile(optimizer, loss_object, run_eagerly=True)
+
+if False: 
+    ## The following relates to pre-loading LSTM weights 
+    init_generator = generator.DataGenerator(
+            train_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=False, training=True)
+    # 1. Make one pass through the model 
+    model(init_generator.__getitem__(0)[0])
+    print(model.summary())
+    # 2. Load weights
+    pre_trained_weights = np.load('./Log/vgg16_all_samples/pre_train_weights.npy', allow_pickle=True)
+    for i in pre_trained_weights:
+        print(i.shape)
+    lstm_weights = pre_trained_weights[-5:-2]
+    time_dist_weights = pre_trained_weights[-2:]
+    # 3. Set LSTM layer weights
+    model.get_layer('lstm').set_weights(lstm_weights)
+    model.get_layer('time_distributed_softmax').set_weights(time_dist_weights)
+    print("Weights loaded for: LSTM & Time-distributed-softmax")
+
 
 
 # Setup Checkpoint handler

@@ -15,20 +15,21 @@ import tqdm
 
 """
 
-loggerA = logging.getLogger(__name__ + '.data_generator')
+loggerA = logging.getLogger(__name__ + '.data_generator_image')
 
 nsd_dir = '/home/seagie/NSD2/'
 captions_path = "/fast/seagie/data/subj_2/captions/"
 #betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
 guse_path     = "/fast/seagie/data/subj_2/guse_averaged/"
-vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
-inception_v3_path = "/huge/seagie/data/inception_v3/"
+#vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
+vgg16_path    = "/fast/seagie/images_vgg16/"
+vgg16_path_cnn= "/fast/seagie/images_vgg16_cnn_out"
 
 class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
 
     def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, pre_load_betas=False, shuffle=True, training=False):
-        print("initialising DataGenerator")
+        print("initialising DataGenerator: images")
         self.pairs = np.array(pairs)
         self.batch_size = batch_size
         self.tokenizer = tokenizer
@@ -39,11 +40,6 @@ class DataGenerator(keras.utils.Sequence):
         self.training = training
         self.pre_load_betas = pre_load_betas
 
-        self.nsd_to_idx = {}
-
-        keys = np.array(list(set([i[0] for i in self.pairs])))
-        for i, k in enumerate(keys):
-            self.nsd_to_idx[str(k)] = i
 
         #self.guse = self.load_guse()
         if pre_load_betas: 
@@ -51,36 +47,6 @@ class DataGenerator(keras.utils.Sequence):
             self.features = self.preload_data(keys)
 
         self.on_epoch_end()
-
-    def load_helper(self, key, i):
-        self.nsd_to_idx[str(key)] = i
-        with open(f"{inception_v3_path}/KID{key}.npy", "rb") as f:
-            return np.reshape(np.load(f), (64, 2048)), i
-
-    def preload_data(self, keys):
-
-        features = np.zeros((keys.shape[0], 64, 2048), dtype=np.float32)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
-            futures = []
-            for i, key in enumerate(keys):
-                futures.append(executor.submit(self.load_helper, key, i))
-            for future in concurrent.futures.as_completed(futures):
-                data, ii = future.result()
-                features[ii] = data
-
-        loggerA.info("betas pre-loaded into memory")
-        return features
-
-    def preload_data2(self, keys):
-        # Not corrently implemented when using more than one subject
-        features = np.zeros((keys.shape[0], 64, 2048), dtype=np.float32)
-        for i, key in tqdm.tqdm(enumerate(keys), desc = 'loading data into memory', total=keys.shape[0]):
-            #self.nsd_to_idx[str(key)] = i
-            with open(f"{inception_v3_path}/KID{key}.npy", "rb") as f:
-                features[i,:] = np.reshape(np.load(f), (64, 2048))
-
-        loggerA.info("betas pre-loaded into memory")
-        return features
 
     def __len__(self):
         """ Nr. of batches per epoch """
@@ -108,15 +74,16 @@ class DataGenerator(keras.utils.Sequence):
 
         #count   = count.astype(np.int32)
 
-        betas_batch = None #np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
-        guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
-        vgg_batch   = None #np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
-        inception_batch = np.zeros((nsd_key.shape[0], 64, 2048), dtype=np.float32)
+        #data_batch   = None #np.zeros((nsd_key.shape[0], 327684), dtype=np.float32) # Betas
+        #guse_batch   = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)   # GUSE
+        data_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)        # FC out layer
+        #data_batch   = np.zeros((nsd_key.shape[0], 512, 196), dtype=np.float32)     # CNN out layer
 
+        # Read data from disk
         for i, key in enumerate(nsd_key):
-            #with open(f"/huge/seagie/data/inception_v3/KID{key}.npy", "rb") as f:
-            idx = self.nsd_to_idx[str(key)]
-            inception_batch[i] = self.features[idx]
+            #with open(f"/fast/seagie/images_vgg16_cnn_out/KID_{key}.npy", "rb") as f:
+            with open(f"/fast/seagie/images_vgg16/KID_{key}.npy", "rb") as f:
+                data_batch[i] = np.load(f)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
@@ -131,9 +98,9 @@ class DataGenerator(keras.utils.Sequence):
         init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
 
         if self.training:
-            return ((inception_batch, cap_vector, init_state, init_state), target)
+            return ((data_batch, cap_vector, init_state, init_state), target)
         else:
-            return ((inception_batch, cap_vector, init_state, init_state), target, nsd_key)
+            return ((data_batch, cap_vector, init_state, init_state), target, nsd_key)
 
 
 

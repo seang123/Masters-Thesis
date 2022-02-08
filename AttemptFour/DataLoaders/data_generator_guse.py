@@ -14,7 +14,8 @@ import concurrent.futures
 loggerA = logging.getLogger(__name__ + '.data_generator')
 
 nsd_dir = '/home/seagie/NSD2/'
-captions_path = "/fast/seagie/data/subj_2/captions/"
+#captions_path = "/fast/seagie/data/subj_2/captions/"
+captions_path = "/fast/seagie/data/captions/"
 betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
 guse_path     = "/fast/seagie/data/subj_2/guse_averaged/"
 vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
@@ -83,7 +84,7 @@ class DataGenerator(keras.utils.Sequence):
         # Pre-allocate memory
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
         guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
-        vgg_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
+        vgg_batch   = None # np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
 
         # Load data 
         if self.pre_load_betas: 
@@ -109,9 +110,9 @@ class DataGenerator(keras.utils.Sequence):
         init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
         
         if self.training:
-            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target)
+            return ((betas_batch, cap_vector, init_state, init_state), target)
         else:
-            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target, nsd_key)
+            return ((betas_batch, cap_vector, init_state, init_state), target, nsd_key)
 
 
 

@@ -17,10 +17,8 @@ with open(f"./Log/{args.dir}/config.yaml", "r") as f:
     print(f"Config file loaded:\n\t{f.name}")
 
 run_name = config['run']
-out_path = os.path.join(config['log'], run_name)#, 'eval_out')
-
-#custom_name = 'gradient_check2'
-#out_path = os.path.join(config['log'], custom_name, 'eval_out')
+#out_path = os.path.join(config['log'], run_name)#, 'eval_out')
+out_path = os.path.join(config['log'], args.dir, 'eval_out')
 
 # Output dir
 if not os.path.exists(out_path):
@@ -32,6 +30,7 @@ df = pd.read_csv(f'./Log/{args.dir}/loss_history.csv')
 
 
 def plot_epoch_loss_acc(df, out_path):
+    """ Plot loss and accuracy """
 
     fig, ax = plt.subplots(2, 1, figsize=(15,15), sharex=True)
 
@@ -47,6 +46,7 @@ def plot_epoch_loss_acc(df, out_path):
     ax[0].plot(epoch_val_loss, label='val')
     ax[0].set_title('Cross-entropy loss')
     ax[0].legend()
+    ax[0].grid()
 
     ax[1].plot(epoch_acc, label='train')
     ax[1].plot(epoch_val_acc, label='val')
@@ -55,10 +55,29 @@ def plot_epoch_loss_acc(df, out_path):
     ax[1].set_ylabel('%')
     ax[1].set_xlabel('Epoch')
     ax[1].legend()
+    ax[1].grid()
 
     plt.savefig(f'{out_path}/training_loss.png')
     plt.close(fig)
     return
+
+def plot_batch_loss(df, out_path):
+
+    fig, ax = plt.subplots(2, 1, figsize=(15,15), sharex=True)
+
+    ax[0].plot(df['loss'], label='train')
+    ax[0].plot(df['val_loss'], label='val')
+    ax[0].grid()
+    ax[0].legend()
+    
+    ax[1].plot(df['accuracy'], label='train')
+    ax[1].plot(df['val_accuracy'], label='val')
+    ax[1].grid()
+    ax[1].legend()
+    plt.savefig(f'{out_path}/training_loss_batch.png')
+    plt.close(fig)
+
+
 
 def plot_train_loss_with_reg(csv_file_path, out_path):
 
@@ -121,6 +140,7 @@ if __name__ == '__main__':
     #plot_train_loss_with_reg(f"{config['log']}/{custom_name}/training_log.csv", out_path)
 
     plot_epoch_loss_acc(df, out_path)
+    plot_batch_loss(df, out_path)
 
 
 
