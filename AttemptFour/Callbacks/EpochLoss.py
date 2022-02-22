@@ -1,6 +1,8 @@
 import numpy as np
 from tensorflow.keras.callbacks import Callback
 import csv
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 import pandas as pd
 import logging
 from contextlib import redirect_stdout 
@@ -33,6 +35,7 @@ class LossHistory(Callback):
 
         for d in self.df_ls:
             self.df = self.df.append(d, ignore_index=True)
+            #self.df = pd.concat([self.df, pd.DataFrame(d)], ignore_index=True)
         self.df_ls = []
 
         self.df.to_csv(self.file_name, index=False)

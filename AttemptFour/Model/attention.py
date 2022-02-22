@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.layers import LeakyReLU, ELU, ReLU
 from tensorflow.keras.initializers import HeNormal, GlorotNormal
+from tensorflow.keras.activations import tanh
 
 class Attention(tf.keras.layers.Layer):
     """ True attention as done in Show, Attend, and Tell 
@@ -15,7 +16,7 @@ class Attention(tf.keras.layers.Layer):
         self.softmax = tf.keras.layers.Softmax(axis=1)
         self.dropout = dropout
 
-        self.bn1 = tf.keras.layers.BatchNormalization()
+        #self.bn = tf.keras.layers.BatchNormalization(name = 'attention_bn')
 
         self.W1 = tf.keras.layers.Dense(units, **kwargs)
         self.W2 = tf.keras.layers.Dense(units, **kwargs)
@@ -26,15 +27,15 @@ class Attention(tf.keras.layers.Layer):
 
         hidden_with_time_axis = tf.expand_dims(hidden, 1) # (bs, 1, units)
 
-        attention_hidden_layer = tf.keras.activations.tanh(
-                self.W1(features) +
-                self.W2(hidden_with_time_axis)
+        attention_hidden_layer = tanh(
+                self.W1(features, training=training) +
+                self.W2(hidden_with_time_axis, training=training)
         ) # (bs, regions, attn_units)
 
-        attention_hidden_layer = self.bn1(attention_hidden_layer)
-        #attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
+        #attention_hidden_layer = self.bn(attention_hidden_layer, training=training)
+        attention_hidden_layer = self.dropout(attention_hidden_layer, training=training)
 
-        score = self.V(attention_hidden_layer) # (bs, regions, 1)
+        score = self.V(attention_hidden_layer, training=training) # (bs, regions, 1)
 
         attention_weights = self.softmax(score) # (bs, regions, 1)
 

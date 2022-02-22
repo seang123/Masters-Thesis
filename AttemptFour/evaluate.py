@@ -16,11 +16,11 @@ from nsd_access import NSDAccess
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu, corpus_bleu
 from tabulate import tabulate
 import argparse
-import nibabel as nb
-import cortex
+#import nibabel as nb
+#import cortex
 from itertools import groupby
 
-gpu_to_use = 0
+gpu_to_use = 2
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -116,18 +116,32 @@ model = lc_NIC.NIC(
         config['dropout_text'],
         config['dropout_attn'],
         config['dropout_lstm'],
+        config['dropout_out'],
         config['input_reg'],
         config['attn_reg'],
         config['lstm_reg'],
         config['output_reg']
         )
-
+"""
 x = np.random.uniform(0, 1, size=(config['batch_size'], config['input']['full'])).astype(dtype=np.float32)
 y = np.random.randint(0, 2, size=(config['batch_size'], config['max_length']), dtype=np.int32)
 z1 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
 z2 = np.random.uniform(0, 1, size=(config['batch_size'], config['units'])).astype(dtype=np.float32)
 model((x,y,z1,z2), training=False)
-print("model built")
+"""
+init_generator = generator.DataGenerator(
+        val_pairs,
+        batch_size, 
+        tokenizer, 
+        config['units'], 
+        config['max_length'], 
+        vocab_size, 
+        pre_load_betas=False,
+        shuffle=False, 
+        training=False)
+data = init_generator.__getitem__(0)
+model(data[0], False)
+print("- Model built -")
 
 
 ## Restore model from Checkpoint
@@ -351,12 +365,13 @@ def eval_model():
         all_outputs.append(outputs)
         all_attention_scores.append(attention_scores)
 
-    outputs = np.swapaxes(np.concatenate((all_outputs), axis=1), 0, 1)
+    print("all_outputs[0]:", all_outputs[0].shape) # (128, 13, 1)
+
+    #outputs = np.swapaxes(np.concatenate((all_outputs), axis=1), 0, 1)
+    outputs = np.concatenate((all_outputs), axis=0)
     attention_scores = np.swapaxes(np.concatenate((all_attention_scores), axis=1), 0, 1)
     print("outputs:", outputs.shape)
     print("attention scores:", attention_scores.shape)
-
-    #visualise_attention(10, attention_scores)
 
     with open(f"{out_path}/output_captions.npy", "wb") as f:
         np.save(f, outputs)

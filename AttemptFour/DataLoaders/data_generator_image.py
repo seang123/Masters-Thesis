@@ -71,7 +71,6 @@ class DataGenerator(keras.utils.Sequence):
         """
 
         nsd_key, cap, guse_key, count = batch[:,0], batch[:,1], batch[:,2], batch[:,3]
-
         #count   = count.astype(np.int32)
 
         #data_batch   = None #np.zeros((nsd_key.shape[0], 327684), dtype=np.float32) # Betas
@@ -82,8 +81,8 @@ class DataGenerator(keras.utils.Sequence):
         # Read data from disk
         for i, key in enumerate(nsd_key):
             #with open(f"/fast/seagie/images_vgg16_cnn_out/KID_{key}.npy", "rb") as f:
-            with open(f"/fast/seagie/images_vgg16/KID_{key}.npy", "rb") as f:
-                data_batch[i] = np.load(f)
+            with open(f"{vgg16_path}/KID_{key}.npy", "rb") as f:
+                data_batch[i] = np.load(f).astype(np.float32)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
@@ -95,7 +94,7 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        init_state = np.zeros([nsd_key.shape[0], self.units], dtype=data_batch.dtype)
 
         if self.training:
             return ((data_batch, cap_vector, init_state, init_state), target)

@@ -141,7 +141,7 @@ def visualise_attention(idx: int, attention_scores, outputs):
 
         glasser_regions_over_time.append(glasser_regions)
 
-        vert = cortex.Vertex(glasser_regions, 'fsaverage')
+        vert = cortex.Vertex(glasser_regions, subject='fsaverage', vmin=-8, vmax=8)
         im, extents = cortex.quickflat.make_flatmap_image(vert)
         if r >= nrows:
             r = 0
@@ -178,6 +178,18 @@ def get_picture(idx):
     """ Get the NSD picture for a given idx """
     key = val_keys['nsd_key'].iloc[idx]
     return nsd_loader.read_images(int(key)-1)
+
+def print_examples(samples: int, output: np.array):
+
+    indices = np.random.randint(0, 1000, samples)
+
+    for i in indices:
+        cand = get_caption(i, output)[0]
+        targ = get_target_caption(i)
+        print(f"\n--- idx: {i} - NSD: {val_keys['nsd_key'].iloc[i]} --- ")
+        print("\tCandidate:", cand)
+        print("\tTarget:   ", targ)
+ 
 
 def plot_image_caption(idx: int, output: np.array):
     """ Plot the image caption pair 
@@ -541,9 +553,8 @@ def guse_comparison(idx, outputs):
     return
 
 def rank_transform(data):
-    sigmoid = lambda x: 1 / (1 + np.exp(-x))
-    #return np.log(data)
-    return sigmoid(data)
+    #sigmoid = lambda x: 1 / (1 + np.exp(-x))
+    return np.log(data)
 
 def attn_statistics(attn_scores):
     print("max:", np.max(attention_scores[idx]))
@@ -580,16 +591,15 @@ def linear_attn_maps(idx, attn_scores):
 
 if __name__ == '__main__':
     outputs, attention_scores = load_data()
-    idx = 0 # np.random.randint(0, 1000) # 672 - cattle, 2 - surfer, 946 - snowboarder
+    idx =  np.random.randint(0, 1000) # 672 - cattle, 2 - surfer, 946 - snowboarder
     print(f"--- trial: {idx} --- NSD: {val_keys['nsd_key'].iloc[idx]} ---")
 
     # Rank transform
-    #attention_scores = rank_transform(attention_scores)
+    attention_scores = rank_transform(attention_scores)
 
-    temp2(idx, attention_scores)
-    raise
+    #print_examples(5, outputs)
 
-    #plot_image_caption(idx, outputs)
+    plot_image_caption(idx, outputs)
     #attention_by_tag(outputs, attention_scores)
 
     #guse_comparison(idx, outputs)
@@ -602,7 +612,7 @@ if __name__ == '__main__':
     
     #top_region_over_time(idx, attention_scores)
     visualise_attention(idx, attention_scores, outputs)
-    #avg_attention_across_trials(attention_scores)
+    avg_attention_across_trials(attention_scores)
 
 
 

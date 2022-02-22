@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow.keras.utils import Progbar
 import numpy as np
 
-from Model import NIC, img_NIC
+from Model import img_NIC
 #from DataLoaders import load_images as loader
 from DataLoaders import load_avg_betas as loader
 from DataLoaders import data_generator_image as generator
@@ -15,7 +15,7 @@ from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from datetime import datetime
 
-gpu_to_use = 0
+gpu_to_use = 2
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -50,16 +50,16 @@ tf.random.set_seed(config['seed'])
 vocab_size = config['top_k'] + 1
 
 # Create train-val keys
-subj2_train_keys, subj2_val_keys = loader.get_nsd_keys('2')
+train_keys, val_keys = loader.get_nsd_keys('2')
 all_keys = np.arange(1, 73001)
-#train_keys = [i for i in all_keys if i not in set(subj2_val_keys)]
-#print("len(train_keys)", len(train_keys))
-#val_keys = subj2_val_keys
-#print("len(val_keys)", len(val_keys))
+
+# Keep only val split
+#val_split = np.loadtxt("./TrainData/val_split.txt", dtype=np.int32)
+#val_keys = val_keys[val_split]
 
 # Create train pairs
-train_pairs = np.array(loader.create_pairs(subj2_train_keys))
-val_pairs = np.array(loader.create_pairs(subj2_val_keys))
+train_pairs = np.array(loader.create_pairs(train_keys))
+val_pairs = np.array(loader.create_pairs(val_keys))
 print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 print("Captions created")
@@ -102,6 +102,7 @@ model = img_NIC.NIC(
         config['dropout_text'],
         config['dropout_attn'],
         config['dropout_lstm'],
+        config['dropout_out'],
         config['input_reg'],
         config['attn_reg'],
         config['lstm_reg'],
@@ -204,6 +205,11 @@ def dotfit():
             vocab_size, 
             pre_load_betas=False,
             shuffle=False, training=True)
+
+    #build_time = time.perf_counter()
+    #model.build(val_generator.__getitem__(0)[0])
+    #print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
+    #print(model.summary())
 
     model.fit(
             train_generator,

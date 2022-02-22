@@ -83,8 +83,8 @@ class NIC(tf.keras.Model):
         # Locally connected input (in conjunction with attention)
         self.dense_in = layers.LocallyDense(
             groups,
-            dropout = self.dropout,
-            batch_norm = self.batchnorm_in,
+            dropout=self.dropout,
+            batch_norm=self.batchnorm_in,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
@@ -112,12 +112,21 @@ class NIC(tf.keras.Model):
         )
 
         # LSTM layer
-        self.lstm = LSTM(units,
+        """
+        self.lstm = LSTM(
+            units,
             return_sequences=True,
             return_state=True,
             kernel_regularizer=self.l2_lstm,
-            dropout=dropout_lstm,
             name = 'lstm'
+        )
+        """
+        self.gru = tf.keras.layers.GRU(
+            units,
+            return_sequences=True,
+            return_state=True,
+            kernel_regularizer=self.l2_lstm,
+            name='gru'
         )
         """
         #self.lstm.trainable=False # freeze layer 
@@ -158,10 +167,33 @@ class NIC(tf.keras.Model):
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
-        return self.call_attention(data, training)
+        #return self.call_attention(data, training)
         #return self.call_attention_rec(data, training)
         #return self.call_lc(data, training)
         #return self.call_fc(data, training)
+
+        img, text, hidden, carry = data
+        hidden = tf.convert_to_tensor(hidden)
+        carry = tf.convert_to_tensor(carry)
+
+        img = self.dropout_input(img, training=training)
+
+        # Features from regions
+        features = self.dense_in(img, training=training)
+        features = self.dropout(features, training=training)
+
+        outputs = []
+        attention_scores = []
+        for i in range(text.shape[1]):
+            word = text[:,i]
+            output, attn_scores, hidden, carry = self.call_attention(
+                    (features, word, hidden, carry),
+                    training=training
+            )
+            outputs.append(output)
+            attention_scores.append(attn_scores)
+
+        return tf.concat(outputs, axis=1), tf.stack(attention_scores, axis=1)
 
     def learn_init_state(self, features):
         """ Proposed by Xu et al. init the LSTM h,c state as MLP(mean(features))"""
@@ -169,51 +201,32 @@ class NIC(tf.keras.Model):
         c = self.carry_init(tf.reduce_mean(features, axis=1))
         return h, c
 
-    def call_naive_attention(self, data, training=False):
-        """ Same as call_attention() but without teacher forcing """
-        img_input, text_input, a0, c0 = data
-        img_input = self.dropout_input(img_input, training=training)
-
-        # Features from regions
-        features = self.dense_in(img_input, training) 
-        features = self.dropout(features, training=training)
+    def call_attention(self, data, training=False):
+        """ Attention model call on single word """
+        features, word, a, c = data
 
         # Embed the caption vector
-        text_full = self.embedding(text_input) # (bs, max_len, embed_dim)
-        text = tf.expand_dims(text_full[:,0,:], axis=1)
-        text = self.dropout_text(text, training=training)
+        word = self.embedding(word) # (bs, max_len, embed_dim)
+        word = self.expand(word)
+        word = self.dropout_text(word, training=training)
 
-        # init state
-        a = tf.convert_to_tensor(a0) # (bs, units)
-        c = tf.convert_to_tensor(c0)
-        
-        attention_scores = []
-        outputs = []
-        for i in range(text_full.shape[1]):
-            # compute attention context
-            context, attn_scores = self.attention(a, features, training=training)
-            context = self.expand(context) # (bs, 1, group_size)
+        # compute attention context
+        context, attn_scores = self.attention(a, features, training=training)
+        context = self.expand(context) # (bs, 1, group_size)
 
-            #attention_scores += attn_scores
-            attention_scores.append( attn_scores )
+        sample = tf.concat([context, word], axis=-1) # (bs, 1, embed_features + embed_text)
+        #seq, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+        seq, a = self.gru(sample, initial_state=[a], training=training)
+        seq = self.dropout_lstm(seq, training=training)
 
-            sample = tf.concat([context, text], axis=-1) # (bs, 1, embed_features + embed_text)
-            _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+        # Dense-Decoder
+        seq = self.dense_inter(seq, training=training)
+        seq = self.dropout_output(seq, training=training)
+        output = self.dense_out(seq, training=training) # (bs, 1, 5001)
 
-            # Dense-Decoder
-            output = self.dense_out(a) # (bs, 1, 5001)
-            outputs.append(output)
+        return output, tf.convert_to_tensor(attn_scores), a, c
 
-            # Greedy choice
-            word = tf.argmax(output, axis=-1)
-
-            # encode the new word
-            text = self.embedding(word)
-
-        outputs = tf.squeeze(tf.stack(outputs, axis=1)) # (bs, max_len, embed_dim)
-        return outputs, tf.convert_to_tensor(attention_scores)
-
-    def call_attention(self, data, training=False):
+    def call_attention_old(self, data, training=False):
         """ Forward pass | Attention model """
         img_input, text_input, a0, c0 = data
 
@@ -248,8 +261,7 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            out = self.dropout_lstm(a, training=training)
-            output.append(out)
+            output.append(a)
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
@@ -381,7 +393,7 @@ class NIC(tf.keras.Model):
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)
-        #gradients = agc.adaptive_clip_grad(trainable_variables, gradients, clip_factor=0.01, eps = 1e-3)
+        gradients = agc.adaptive_clip_grad(trainable_variables, gradients, clip_factor=0.01, eps = 1e-3)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
         
@@ -527,7 +539,7 @@ class NIC(tf.keras.Model):
 
         return np.array(outputs)
 
-    def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer, training=False):
+    def greedy_predict_attention(self, img_input, a, c, start_seq, max_len, units, tokenizer, training=False):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator
@@ -543,91 +555,51 @@ class NIC(tf.keras.Model):
         """
 
         features = self.dense_in(img_input, training=training)
-        features = self.dropout(features, training=training)
 
-        text = self.embedding(start_seq)
-        text = self.dropout_text(text, training=training)
-        text = self.expand(text)
-
-        a = a0
-        c = c0
-
-        attention_scores = []
         outputs = []
+        attention_scores = []
         for i in range(max_len):
-            context, attention_score = self.attention(a, features, training=training)
-            context = self.expand(context)
-            attention_scores.append( np.array(attention_score) )
-
-            # Plot attention
-
-            sample = tf.concat([context, text], axis=-1)
-            _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            seq = self.expand(a)
-            seq = self.dropout_lstm(seq, training=training)
-
-            # Dense-Decoder
-            output = self.dense_inter(seq, training=training)
-            output = self.dropout_output(output, training=training)
-            output = self.dense_out(output, training=training) # (bs, 1, 5001)
+            output, attn_score, a, c = self.call_attention(
+                    (features, start_seq, a, c),
+                    training=False
+            )
+            attention_scores.append(attn_score)
 
             # Greedy choice
-            word = np.argmax(output, axis=-1)
-            outputs.append(word)
+            text = np.argmax(output, axis=-1) # (bs, 1)
+            outputs.append(text)
 
-            # encode the new word
-            text = self.embedding(word)
 
         # outputs -> np.array == (max_len, bs, 1)
         outputs = np.stack(outputs, axis=1)
         assert outputs.shape == (features.shape[0], max_len, 1)
         return outputs, np.array(attention_scores)
 
-    def beam_search(feature, start_seq, max_len, units):
 
-        features = self.dense_in(img_input, training=training)
-
-        text = self.embedding(start_seq)
-        text = self.expand(text)
-
-        a = np.zeros((features.shape[0], units))
-        c = np.zeros((features.shape[0], units))
-
-        context, attention_score = self.attention(a, features, training=training)
-        sample = tf.concat([context, text], axis=-1)
-        seq, _, _ = self.lstm(sample, initial_state=[a,c], training=training)
-
-        samples = self._beam_search([seq])
-
-        return 
-
-    def _beam_search(frontier: list, max_len: int):
-
-        if frontier[0].shape[1] == max_len:
-            return frontier
-        else:
-
-            for seq in frontier:   
-                output = self.dense_inter(seq, training=training)
-                output = self.dense_out(output, training=training) # (bs, 1, 5001)
-                #word = np.argmax(output, axis=-1)
-
+    def beam_search():
         return
 
-    def select_nucleus2(probability_vector, p: float = 0.5):
 
-        samples = []
-        samples.append( tf.random.categorical(probability_vector, 1) )
+    @staticmethod
+    def select_nucleus(probability_vector, p: float = 0.5):
+        """ Selects top-p choices from a probability vector
 
-        sum_prob = 0
-        for i in samples:
-            sum_prob += probability_vector[i] 
+        Similary to how top-k selects the top k elements, top-p
+        selecets the top k elements such that their sum is >= p
 
-        while sum_prob < p:
-            samples.append( tf.random.categorical(probability_vector, 1) )
-            sum_prob += probability_vector[samples[-1]]
+        Note: shouldn't take batched data. ie. only single batch 
+        """
+        probability_vector = np.squeeze(probability_vector) 
 
-        return samples
+        idxs = np.argsort(probability_vector)
+        vals, probs, cumsum = [], [], 0.0
+        for _, v in enumerate(idxs):
+            vals.append(v)
+            probs.append(probability_vector[v])
+            cumsum += probability_vector[v]
+            if cumsum > p:
+                return vals, probs
+
 
 
     @tf.function()

@@ -1,4 +1,3 @@
-import yaml
 import logging
 import time
 import pandas as pd
@@ -9,7 +8,8 @@ from tensorflow.keras.optimizers import schedules
 import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
-from Model import NIC, lc_NIC, ms_NIC
+from Model import lc_NIC
+#from Model import tmp_lc_NIC as lc_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
 from DataLoaders import data_generator_guse as generator
@@ -18,16 +18,18 @@ from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from collections import defaultdict
 from datetime import datetime
+import subprocess
+import yaml
 
-gpu_to_use = 0
+gpu_to_use = 2
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
+print(physical_devices)
 for i in range(0, len(physical_devices)):
     tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
-
 
 ## Load the configuration file
 with open("./config.yaml", "r") as f:
@@ -51,33 +53,23 @@ logging.basicConfig(filename=f'{run_path}/log.log', filemode='w', level=logging.
 np.random.seed(config['seed'])
 tf.random.set_seed(config['seed'])
 
+# Copy Model file to run_path folder for record
+subprocess.run(["cp", "./Model/lc_NIC.py", f"{run_path}/lc_NIC.py"], shell=False, check=True)
+print(f"Model file copied to {run_path} for record")
+
 ## Parameters
 vocab_size = config['top_k'] + 1
 
 #
 ## Load data
 #
-"""
-tokenizer, _ = loader.build_tokenizer(config['dataset']['captions_path'], config['top_k'])
-
-nsd_keys, shr_nsd_keys = loader.get_nsd_keys(config['dataset']['nsd_dir'])
-
-print("len(nsd_keys)", len(nsd_keys))
-print("len(shr_nsd_keys)", len(shr_nsd_keys))
-
-train_keys = nsd_keys
-val_keys = shr_nsd_keys
-
-train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'])
-val_pairs   = loader.create_pairs(val_keys, config['dataset']['captions_path'])
-
-print(f"train_pairs: {len(train_pairs)}")
-print(f"val_pairs  : {len(val_pairs)}")
-"""
-
 train_keys, val_keys = loader.get_nsd_keys('2')
 print("train_keys:", train_keys.shape)
 print("val_keys:", val_keys.shape)
+
+# Keep only validation split  (rest is test data)
+#val_split = np.loadtxt("./TrainData/val_split.txt", dtype=np.int32)
+#val_keys = val_keys[val_split]
 
 train_pairs = np.array(loader.create_pairs(train_keys))
 val_pairs = np.array(loader.create_pairs(val_keys))
@@ -86,7 +78,6 @@ print("val_pairs:  ", val_pairs.shape)
 
 tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
 #tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
-
 
 #cos_decay = schedules.CosineDecay(initial_learning_rate=0.001, decay_steps=1000, alpha=0.01, name=None )
 initial_lr = 0.1 * (config['batch_size'] / 256)
@@ -99,8 +90,8 @@ def lr_schedule(step):
     decay_rate = 0.01 
     inital_lr = 0.01
     final_lr = 0.0001
-    #return 0.0001
-    return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
+    return 0.0001
+    #return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
@@ -137,6 +128,7 @@ model = lc_NIC.NIC(
         config['dropout_text'],
         config['dropout_attn'],
         config['dropout_lstm'],
+        config['dropout_out'],
         config['input_reg'],
         config['attn_reg'],
         config['lstm_reg'],
@@ -145,17 +137,21 @@ model = lc_NIC.NIC(
 #Compile
 model.compile(optimizer, loss_object, run_eagerly=True)
 
-if False: 
-    ## The following relates to pre-loading LSTM weights 
-    init_generator = generator.DataGenerator(
-            train_pairs, 
-            config['batch_size'], 
-            tokenizer, 
-            config['units'], 
-            config['max_length'], 
-            vocab_size, 
-            pre_load_betas=False,
-            shuffle=False, training=True)
+## The following relates to pre-loading LSTM weights 
+init_generator = generator.DataGenerator(
+        train_pairs, 
+        config['batch_size'], 
+        tokenizer, 
+        config['units'], 
+        config['max_length'], 
+        vocab_size, 
+        pre_load_betas=False,
+        shuffle=False, training=True)
+build_time = time.perf_counter()
+model(init_generator.__getitem__(0)[0])
+print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
+print(model.summary())
+if False:
     # 1. Make one pass through the model 
     model(init_generator.__getitem__(0)[0])
     print(model.summary())
@@ -204,10 +200,8 @@ checkpoint_latest = ModelCheckpoint(
 #epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
 loss_history = EpochLoss.LossHistory(f"{run_path}/loss_history.csv", f"{run_path}")
 
-warmup = WarmupScheduler.WarmupScheduler(1, 0.00001, config['alpha'])
-
-early_stop = EarlyStopping(monitor="val_loss", min_delta=0.001, patience=5)
-reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patience=10, min_delta=0.005, min_lr=0.0001)
+#early_stop = EarlyStopping(monitor="val_loss", min_delta=0.001, patience=5)
+#reduce_lr = ReduceLROnPlateau(monitor='val_loss', verbose=1, factor=0.1, patience=10, min_delta=0.005, min_lr=0.0001)
 
 logdir = f"./tb_logs/scalars/{config['run']}/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
@@ -219,7 +213,7 @@ tensorboard_callback = TensorBoard(
         #embeddings_freq=1,
         #profile_batch='200,220',
         )
-file_writer = tf.summary.create_file_writer(logdir)
+#file_writer = tf.summary.create_file_writer(logdir)
 
 # Init a generator used during the predict callback
 #val_generator_pred = create_generator(val_pairs, False)

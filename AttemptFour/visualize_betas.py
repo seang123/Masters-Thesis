@@ -54,6 +54,30 @@ def get_avg_betas(keys):
         betas[k,:] = get_beta_by_key(v)
     return betas
 
+def euclid_norm(x):
+    return np.sqrt(np.sum(np.power(x, 2), axis=0))
+def one_norm(x):
+    return np.sum(np.abs(x), axis=0)
+
+def norm(name = 'training'):
+    """ Plot norm betas """
+    
+    if name == 'training':
+        betas = get_avg_betas(train_keys)
+    elif name == 'val':
+        betas = get_avg_betas(val_keys)
+    else:
+        raise Exception("wrong name")
+
+    betas = one_norm(betas)
+
+    fig = plt.figure(figsize=(20,20), dpi = 100)
+    plt.imshow(vert(betas), cmap=plt.get_cmap('viridis'))
+    plt.grid(False)
+    plt.axis('off')
+    plt.savefig(f"./Visualization/one_norm_betas_{name}_trials.png", bbox_inches='tight')
+    plt.close(fig)
+
 def avg_betas(name = 'training'):
     """ Plot the betas averaged across all training trials """
     
@@ -64,14 +88,13 @@ def avg_betas(name = 'training'):
     else:
         raise Exception("wrong name")
 
-    #betas_mean = np.mean(betas, axis=0)# / betas.shape[0]
+    betas = np.mean(betas, axis=0)# / betas.shape[0]
     #print("min", np.min(betas_mean))
     #print("max", np.max(betas_mean))
 
-    betas_mean = np.sqrt(np.sum(np.power(betas, 2), axis=0))
 
     fig = plt.figure(figsize=(20,20), dpi = 100)
-    plt.imshow(vert(betas_mean), cmap=plt.get_cmap('viridis'))
+    plt.imshow(vert(betas), cmap=plt.get_cmap('viridis'))
     plt.grid(False)
     plt.axis('off')
     plt.savefig(f"./avg_betas_{name}_trials.png", bbox_inches='tight')
@@ -118,5 +141,14 @@ def single_trial():
 if __name__ == '__main__':
     #single_trial()
     #temp()
-    avg_betas('training')
+    #avg_betas('training')
     #avg_betas('val')
+
+
+    norm('training')
+    norm('val')
+
+
+
+
+

@@ -3,14 +3,30 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
-import DataLoaders.load_avg_betas as loader
+#import DataLoaders.load_avg_betas as loader
 from scipy import stats
 import sys
 import nibabel as nb
-import cortex
+#import cortex
+import tbparse
 
 from nsd_access import NSDAccess
+import subprocess
 
+
+
+sys.exit(0)
+# Generate Val/Test split
+x = np.arange(0, 1000)
+np.random.shuffle(x)
+
+val_split = x[:250]
+
+with open(f"./TrainData/val_split.txt", "w") as f:
+    for i in val_split:
+        f.write(f"{i}\n")
+
+raise
 
 
 with open("./Log/separate_hemispheres_attn_loss/eval_out/attention_scores.npy", "rb") as f:

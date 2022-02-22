@@ -22,17 +22,18 @@ class LocallyDense(tf.keras.layers.Layer):
                 tf.keras.layers.Dense(embed_dim, **kwargs) for dim in range(n_features)]
 
         self.bn = BatchNormalization()
+        self.do = dropout
 
 
     def call(self, x, training=False):
         """ Forward pass """
         # x = (bs, 512, 196)
-        #out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] # 41 * (bs, embed_dim)
         out = [layer(x[:,i,:], training=training) for (layer,i) in zip(self.dense_layers, range(self.n_features))]
         # len out = 512, out[0] = (bs, group_size)
         out = tf.convert_to_tensor(out)
-        out = tf.transpose(out, perm=[1,0,2]) # => (bs, 512, 64)
+        out = tf.transpose(out, perm=[1,0,2]) # => (bs, 512, n_features)
         out = self.bn(out, training=training)
+        out = self.do(out, training=training)
 
         return out
 

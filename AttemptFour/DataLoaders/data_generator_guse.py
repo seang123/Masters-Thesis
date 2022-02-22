@@ -107,7 +107,9 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        #init_state = np.random.normal(0, 0.05, (nsd_key.shape[0], self.units)).astype(np.float32)
+
         
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state), target)
