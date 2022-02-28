@@ -9,7 +9,7 @@ GUSE_model_path = './GUSE_model'
 nsd_keys = './TrainData/subj02_conditions.csv'
 captions_path = '/fast/seagie/data/subj_2/captions/'
 
-gpu_to_use = 0
+gpu_to_use = 2
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):

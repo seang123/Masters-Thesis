@@ -194,7 +194,7 @@ def get_shr_nsd_keys(nsd_dir: str) -> list:
     return ngd.get_1000(nsd_dir)
 
 @timeit
-def create_pairs(keys: list):
+def create_pairs(keys: list, subj='2'):
     """ returns NSD_key - caption pairs
 
     Parameters
@@ -208,7 +208,7 @@ def create_pairs(keys: list):
     Returns
     -------
         pairs : list
-            [NSD key, caption, caption id, key_idx, subj_id]
+            [NSD key, caption, caption id, count, subject id]
     """
 
     pairs = []
@@ -222,7 +222,7 @@ def create_pairs(keys: list):
                 #cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
-                pairs.append( (key, cap, cid, count) )
+                pairs.append( (key, cap, cid, count, subj) )
                 cid += 1
 
     return pairs

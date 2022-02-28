@@ -1,8 +1,9 @@
 ---
  # Name the current run
- run: no_attn_loss_const_lr2
+ run: multi_sub
 
  info: | 
+     test smaller lstm/embedding
      constant learning rate of 0.0001
      dropout
      deep output non linear layer
@@ -22,7 +23,7 @@
  seed: 42
 
  # Training
- epochs: 200 # 25
+ epochs: 100 # 25
  batch_size: 64
  max_length: 15
  optimizer: Adam
@@ -53,8 +54,8 @@
  units: 512 # lstm
  attn_units: 32
  group_size: 32 # acts as embedding dim for attention model
- embedding_features: 512
- embedding_text: 512
+ embedding_features: 128
+ embedding_text: 128
  top_k: 5000
 
 

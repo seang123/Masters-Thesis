@@ -343,6 +343,32 @@ def batch_eval(nr_of_batches = 1):
         
     return
 
+def beam_search():
+
+    val_generator = generator.DataGenerator(
+            val_pairs,
+            1,  # batch_size
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=False, 
+            training=False)
+    print("len generator:", len(val_generator))
+
+    #sample = val_generator.__getitem__(0)
+    sample = val_generator[i]
+    features, _, a0, c0 = sample[0]
+    print("features:", features.shape)
+    target = sample[1]
+    keys = sample[2]
+
+    start_seq = [tokenizer.word_index['<start>']]
+    start_seq = np.expand_dims(start_seq, axis=0)
+    print("start seq:", start_seq.shape)
+    model.beam_search(features, start_seq, config['max_length'], config['units']) 
+
 
 def eval_model():
     """ Runs the generators input through the model and returns the output and attention scores """
@@ -453,10 +479,9 @@ def visualise_caption(idx, key):
 
 if __name__ == '__main__':
     nr_batches = 1
-    #batch_eval(nr_batches)
-    #eval_full_set()
-    #batch_eval(nr_batches)
+    #beam_search()
     eval_model()
+
 
 
 

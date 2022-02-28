@@ -8,12 +8,13 @@ from tensorflow.keras.optimizers import schedules
 import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
-from Model import lc_NIC
+#from Model import lc_NIC
+from Model import ms2_NIC as lc_NIC
 #from Model import tmp_lc_NIC as lc_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
-from DataLoaders import data_generator_guse as generator
-#from DataLoaders import data_generator_multisub as generator
+#from DataLoaders import data_generator_guse as generator
+from DataLoaders import data_generator_multisub as generator
 from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from collections import defaultdict
@@ -21,7 +22,7 @@ from datetime import datetime
 import subprocess
 import yaml
 
-gpu_to_use = 2
+gpu_to_use = 1
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -63,7 +64,12 @@ vocab_size = config['top_k'] + 1
 #
 ## Load data
 #
+train_keys_one, val_keys_one = loader.get_nsd_keys('1')
+print("subject 1")
+print("train_keys:", train_keys_one.shape)
+print("val_keys:", val_keys_one.shape)
 train_keys, val_keys = loader.get_nsd_keys('2')
+print("subject 2")
 print("train_keys:", train_keys.shape)
 print("val_keys:", val_keys.shape)
 
@@ -71,18 +77,25 @@ print("val_keys:", val_keys.shape)
 #val_split = np.loadtxt("./TrainData/val_split.txt", dtype=np.int32)
 #val_keys = val_keys[val_split]
 
-train_pairs = np.array(loader.create_pairs(train_keys))
-val_pairs = np.array(loader.create_pairs(val_keys))
-print("train_pairs:", train_pairs.shape)
-print("val_pairs:  ", val_pairs.shape)
+train_pairs_one= np.array(loader.create_pairs(train_keys_one, '1'))
+val_pairs_one = np.array(loader.create_pairs(val_keys_one, '1'))
+print("subject 1")
+print("train_pairs:", train_pairs_one.shape)
+print("val_pairs:  ", val_pairs_one.shape)
+
+train_pairs_two = np.array(loader.create_pairs(train_keys, '2'))
+val_pairs_two = np.array(loader.create_pairs(val_keys, '2'))
+print("subject 2")
+print("train_pairs:", train_pairs_two.shape)
+print("val_pairs:  ", val_pairs_two.shape)
+
+train_pairs = [train_pairs_one, train_pairs_two]
+val_pairs = [val_pairs_one, val_pairs_two]
+
+print(len(train_pairs), len(train_pairs[0]))
+print(len(val_pairs), len(val_pairs[0]))
 
 tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
-#tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
-
-#cos_decay = schedules.CosineDecay(initial_learning_rate=0.001, decay_steps=1000, alpha=0.01, name=None )
-initial_lr = 0.1 * (config['batch_size'] / 256)
-lr_decay = tf.keras.optimizers.schedules.ExponentialDecay(initial_learning_rate=0.1, decay_steps=1000, decay_rate=0.009, staircase=False, name=None)
-#lr_decay = tf.keras.experimental.LinearCosineDecay(initial_learning_rate=0.001, decay_steps=1000, num_periods=0.5, alpha=0.0, beta = 1e-3, name=None)
 
 def lr_schedule(step):
     # final lr = initial_lr * decay_rate
@@ -95,7 +108,7 @@ def lr_schedule(step):
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.01, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -138,6 +151,7 @@ model = lc_NIC.NIC(
 model.compile(optimizer, loss_object, run_eagerly=True)
 
 ## The following relates to pre-loading LSTM weights 
+"""
 init_generator = generator.DataGenerator(
         train_pairs, 
         config['batch_size'], 
@@ -151,6 +165,7 @@ build_time = time.perf_counter()
 model(init_generator.__getitem__(0)[0])
 print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
 print(model.summary())
+"""
 if False:
     # 1. Make one pass through the model 
     model(init_generator.__getitem__(0)[0])
@@ -293,10 +308,27 @@ def custom_train_loop():
     print(f"for {config['epochs'] - start_epoch} epochs\n------")
     logging.info("training with custom training loop")
 
-    train_generator = generator.DataGenerator(train_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, shuffle=True, training=True)
-    val_generator = generator.DataGenerator(val_pairs, config['batch_size'], tokenizer, config['units'], config['max_length'], vocab_size, shuffle=True, training=True)
+    train_generator = generator.DataGenerator(
+            train_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=True, training=True)
+    val_generator = generator.DataGenerator(
+            val_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=False, training=True)
 
-    grads = []
+    print("len train generator:", len(train_generator))
+    print("len val generator:", len(val_generator))
 
     # Train for N epochs
     callbacks.on_train_begin(logs=logs)
@@ -305,34 +337,14 @@ def custom_train_loop():
         epoch_start_time = time.time()
         callbacks.on_epoch_begin(epoch, logs=logs)
         
-        # Reshuffle train/val pairs
-        #train_pairs = loader.create_pairs(train_keys, config['dataset']['captions_path'], seed = shuffle_seed)
-        #val_pairs   = loader.create_pairs(val_keys,   config['dataset']['captions_path'], seed = shuffle_seed)
-        # Instantiate new generator
-        #train_generator = create_generator(train_pairs, True)
-        #val_generator = create_generator(val_pairs, False)
-
-        #batch_train_loss = defaultdict(list)
-        #batch_val_loss = defaultdict(list)
-
         # Progress bar
-        pb = Progbar(len(train_pairs)/config['batch_size'])#, stateful_metrics=['loss', 'l2', 'accuracy'])
-        pb2 = Progbar(len(val_pairs)/config['batch_size'])#, stateful_metrics=['val-loss', 'val-l2', 'val-accuracy'])
+        pb = Progbar(train_pairs[0].shape[0]/config['batch_size'])#, stateful_metrics=['loss', 'l2', 'accuracy'])
+        pb2 = Progbar(val_pairs[0].shape[0]/config['batch_size'])#, stateful_metrics=['val-loss', 'val-l2', 'val-accuracy'])
 
         # Training
         for (batch_nr, data) in enumerate(train_generator):
             callbacks.on_batch_begin(epoch, logs=logs)
-            #target = data[1]
-            #target = tokenizer.sequences_to_texts(np.argmax(target, axis=2))
-
-            # data -> ([betas, cap_vector, a0, c0], target)
-            #print( "tf.executing_eagerly()", tf.executing_eagerly() )
-            losses, grad = model.train_step(data)
-
-            grads.append(grad)
-
-            #for key, v in losses.items():
-            #    batch_train_loss[key].append(v)
+            losses = model.train_step(data)
 
             values = list(losses.items())
             pb.add(1, values=values)
@@ -343,33 +355,31 @@ def custom_train_loop():
         # Validation 
         for (batch_nr, data) in enumerate(val_generator):
             
-            losses_val = model.test_step(data)
+            losses = model.test_step(data)
 
             #for key, v in losses.items():
             #    batch_val_loss[key].append(v)
 
-            values = list(losses_val.items())
+            values = list(losses.items())
             pb2.add(1, values=values)
 
-            callbacks.on_test_batch_end(batch_nr, logs=losses_val)
+            callbacks.on_test_batch_end(batch_nr, logs=losses)
         
         # On-Epoch-End
         callbacks.on_epoch_end(epoch, logs=logs)
-        #model.save_weights(f"{config['log']}/{config['run']}/model/checkpoints/checkpoint_latest")
 
     # On-Train-End
     callbacks.on_train_end(logs=logs)
 
-    df = pd.DataFrame(grads)
-    df.to_csv(f'{run_path}/df_grads.csv')
-    df.to_pickle(f'{run_path}/df_grads.csv')
+    val_generator.on_epoch_end()
+    train_generator.on_epoch_end()
 
     return
 
 if __name__ == '__main__':
     try:
-        #custom_train_loop()
-        dotfit()
+        custom_train_loop()
+        #dotfit()
     except KeyboardInterrupt as e:
         print("--Keyboard Interrupt--")
     finally:

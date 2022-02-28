@@ -230,7 +230,7 @@ def avg_attention_across_trials(attention_scores):
         avgs.append(avg_attention_at_t(i, attention_scores))
     avgs = np.array(avgs) # (13, 180)
 
-    fig, axes = plt.subplots(nrows=7, ncols=2, figsize=(20, 40), sharex=True) # for 7x2 figsize = (20,40) (w*h)
+    fig, axes = plt.subplots(nrows=8, ncols=2, figsize=(20, 40), sharex=True) # for 7x2 figsize = (20,40) (w*h)
     fig.subplots_adjust(wspace=0, top=0.85)#, hspace=0)
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 
@@ -248,7 +248,6 @@ def avg_attention_across_trials(attention_scores):
 
         glasser_regions = np.vstack((glasser_regions_lh, glasser_regions_rh)).flatten() # (327684,)
 
-
         attn_w = np.argsort(avgs[w,:])
         attn_w = attn_w[-3:][::-1]
         title_str = ""
@@ -256,42 +255,25 @@ def avg_attention_across_trials(attention_scores):
             if region_idx >= 180:
                 region_idx -= 180 
             title_str += f"\n{df['Area Description'].iloc[region_idx]}"
+            break
 
         vert = cortex.Vertex(glasser_regions, 'fsaverage')
         im, extents = cortex.quickflat.make_flatmap_image(vert)
-        if r >= 7: r = 0; c += 1
+        if r >= axes.shape[0]: r = 0; c += 1 # col major
         axes[r,c].imshow(im, cmap=plt.get_cmap('viridis'))
         axes[r,c].set_title(f"t: {w}{title_str}")
         axes[r,c].axis('off')
         r += 1
 
+    #volume = cortex.Volume.random(subject='S1', xfmname='fullhead')
+    #print("-- volume created --")
+    ##qmap = cortex.quickflat.make_figure(volume,with_curvature=True,with_sulci=True)
+    #cortex.quickflat.make_png(f"{out_path}/cortex_png.png", volume, with_rois=True)
+
     fig.suptitle("Average attention at time t across trials")
     axes[r,c].axis('off')
     plt.savefig(f"{out_path}/avg_attn_at_t.png", bbox_inches='tight')
     plt.close(fig)
-
-    if False:
-        # Top regions
-
-        for w in range(words):
-
-            attn_w = avgs[w,:]
-            attn_w_sort = np.argsort(attn_w)
-            attn_w_sort = attn_w_sort[-3:][::-1]
-
-            for i in range(len(attn_sort)):
-                print("\t", attn_sort[i], "-", df['Area Description'].iloc[attn_sort[i]-1])
-
-        vert = cortex.Vertex(glasser_regions, 'fsaverage')
-        im, extents = cortex.quickflat.make_flatmap_image(vert)
-
-        fig = plt.figure()
-        plt.imshow(im)
-        plt.title(f"Average across word: {t}")
-        plt.savefig(f"{out_path}/time_average.png")
-        plt.close(fig)
-
-
     return
 
 def top_region_at_t(t, idx, attention_scores):
@@ -331,7 +313,28 @@ def top_region_over_time(idx, attention_scores):
 
     return
 
+def regions_count(attention_scores):
+    """ Generate a dataframe describing region counts """
+
+    trials, length, regions = attention_scores.shape
+    attn = np.mean(attention_scores, axis=0)
+
+    d = {}
+    regions = range(1, 361)
+    print("regions:", len(regions))
+
+    d = np.zeros((15, 360), dtype=np.int32)
+    
+    for l in range(length):
+        x = np.argsort(attn[l, :])
+        d[l, :] = x
+
+    df = pd.DataFrame(d, index=range(15), columns=range(1, 361))
+    print(df.describe())
+    
+
 def top_regions_over_time_trial(attention_scores):
+    """ Average across trials and across timesteps - then print the top 10 regions """
     #attn = attention_scores[:,:11, :]
     attn_mean = np.mean(np.mean(attention_scores, axis=0), axis=0) # (360,)
 
@@ -435,6 +438,29 @@ def remove_pad(caption: str, end='remove', replace_unk=True):
     if replace_unk:
         x = ['unk' if i == '<unk>' else i for i in x] 
     return " ".join(x)
+
+def ner(outputs):
+    """ Named-entity recognition """
+    import spacy
+    from spacy import displacy
+    from collections import Counter
+    nlp = spacy.load("en_core_web_sm")
+
+    captions = tokenizer.sequences_to_texts(outputs) # list of len 1000
+    captions_clean = [remove_pad(i, end = 'remove') for i in captions] # remove <pad> <end> tokens
+
+    for i, cap in enumerate(captions_clean):
+        print("cap:", cap)
+        doc = nlp((cap))
+        # Analyze syntax
+        print("Noun phrases:", [chunk.text for chunk in doc.noun_chunks])
+        print("Verbs:", [token.lemma_ for token in doc if token.pos_ == "VERB"])
+
+        # Find named entities, phrases and concepts
+        for entity in doc.ents:
+                print(entity.text, entity.label_)
+        break
+    
 
 def tagging(outputs, tagset = 'universal'):
     """ Tag captions using the NLTK part-of-speech tagger
@@ -599,7 +625,7 @@ if __name__ == '__main__':
 
     #print_examples(5, outputs)
 
-    plot_image_caption(idx, outputs)
+    #plot_image_caption(idx, outputs)
     #attention_by_tag(outputs, attention_scores)
 
     #guse_comparison(idx, outputs)
@@ -611,10 +637,12 @@ if __name__ == '__main__':
     #correlation(attention_scores)
     
     #top_region_over_time(idx, attention_scores)
-    visualise_attention(idx, attention_scores, outputs)
-    avg_attention_across_trials(attention_scores)
+    #visualise_attention(idx, attention_scores, outputs)
+#    avg_attention_across_trials(attention_scores)
 
+    #regions_count(attention_scores)
 
+    ner(outputs)
 
 
 

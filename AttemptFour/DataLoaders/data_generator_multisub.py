@@ -38,16 +38,15 @@ class DataGenerator(keras.utils.Sequence):
         self.training = training
         self.pre_load_betas = pre_load_betas
 
-        pairs = np.array(pairs)
-        self.pairsA = pairs[:pairs.shape[0]//2]
-        self.pairsB = pairs[pairs.shape[0]//2:]
+        pairs = np.array(pairs) # (2, n_samples=45000) idx 0 is subject 1, idx 1 is subj2
+        self.pairsA = pairs[0]
+        self.pairsB = pairs[1]
         print("pairsA:", self.pairsA.shape)
         print("pairsB:", self.pairsB.shape)
         assert self.pairsA.shape == self.pairsB.shape, "Subjects need to have equal data split"
 
-        assert batch_size % 2 == 0, "Batch size needs to evenly divide two subjects"
-        self.batch_size = self.batch_size // 2
-
+        #assert batch_size % 2 == 0, "Batch size needs to evenly divide two subjects"
+        #self.batch_size = self.batch_size // 2
         self.on_epoch_end()
 
     def load_all_betas(self, keys):
@@ -62,7 +61,7 @@ class DataGenerator(keras.utils.Sequence):
 
     def __len__(self):
         """ Nr. of batches per epoch """
-        return len(self.pairsA)//self.batch_size
+        return self.pairsA.shape[0]//self.batch_size
 
     def on_epoch_end(self):
         """ Shuffle data when epoch ends """
@@ -84,25 +83,22 @@ class DataGenerator(keras.utils.Sequence):
         Takes a batch from the pairs array and returns the appropriate data
         """
 
-        nsd_keyA, capA, guse_keyA, countA, sub_idA = batchA[:,0], batchA[:,1], batchA[:,2], batchA[:,3], batchA[:,4]
-        nsd_keyB, capB, guse_keyB, countB, sub_idB = batchB[:,0], batchB[:,1], batchB[:,2], batchB[:,3], batchB[:,4]
+        nsd_keyA, capA, _, countA, subj_idA = batchA[:,0], batchA[:,1], batchA[:,2], batchA[:,3], batchA[:,4]
+        nsd_keyB, capB, _, countB, subj_idB = batchB[:,0], batchB[:,1], batchB[:,2], batchB[:,3], batchB[:,4]
 
         nsd_key = np.concatenate((nsd_keyA, nsd_keyB))
-        sub_id  = np.concatenate((sub_idA, sub_idB))
         cap     = np.concatenate((capA, capB))
+        sub_id = np.concatenate((subj_idA, subj_idB))
 
         betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
-        guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
-        vgg_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
 
-
-        #if self.pre_load_betas: 
-        #    betas_batch = self.betas[count,:]
         for i, key in enumerate(nsd_key):
             with open(f"/fast/seagie/data/subj_{sub_id[i]}/betas_averaged/subj0{sub_id[i]}_KID{key}.npy", "rb") as f:
                 betas_batch[i, :] = np.load(f)
-            #with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
-            #    vgg_batch[i,:] = np.load(f)
+
+        #for i, key in enumerate(nsd_keyB):
+        #    with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
+        #        betas_batchB[i, :] = np.load(f)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
@@ -114,12 +110,12 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = np.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
 
         if self.training:
-            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target)
+            return ((betas_batch, cap_vector, init_state, init_state), target)
         else:
-            return ((betas_batch, cap_vector, init_state, init_state, vgg_batch), target, nsd_key)
+            return ((betas_batch, cap_vector, init_state, init_state), target, nsd_key)
 
 
 
