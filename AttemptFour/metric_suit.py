@@ -20,11 +20,13 @@ from nsd_access import NSDAccess
 # ArgParser
 parser = argparse.ArgumentParser(description="Metric Suit")
 parser.add_argument('--dir', type=str, required=True)
+parser.add_argument('--e', type=str, required=False)
 args = parser.parse_args()
 
 # Data dir
 data_loc = os.path.join('Log', args.dir, 'eval_out')
 output_loc = f"{data_loc}/output_captions.npy"
+if args.e != None: output_loc = f"{data_loc}/output_captions_{args.e}.npy"
 annotation_file = f"/home/seagie/NSD3/nsddata_stimuli/stimuli/nsd/annotations/captions_train2017.json" # mscoco train-set contains all validation images
 #annotation_file = f"./captions_val2014.json"
 results_file = f"{data_loc}/captions_results.json"
@@ -48,17 +50,7 @@ def load_data():
 
 def remove_end_pad(caption):
     x = caption.split(" ")
-    try:
-        while True:
-            x.remove('<pad>')
-    except ValueError:
-        # No More <pad> tokens
-        pass
-    try:
-        x.remove('<end>')
-    except ValueError:
-        # No <end> token
-        pass
+    x = [i for i in x if i != '<pad>' and i != '<end>']
     return " ".join(x)
 
 

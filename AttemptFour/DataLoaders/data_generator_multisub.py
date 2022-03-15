@@ -39,6 +39,7 @@ class DataGenerator(keras.utils.Sequence):
         self.pre_load_betas = pre_load_betas
 
         pairs = np.array(pairs) # (2, n_samples=45000) idx 0 is subject 1, idx 1 is subj2
+        self.n_pairs = pairs.shape[0]
         self.pairsA = pairs[0]
         self.pairsB = pairs[1]
         print("pairsA:", self.pairsA.shape)
@@ -86,22 +87,23 @@ class DataGenerator(keras.utils.Sequence):
         nsd_keyA, capA, _, countA, subj_idA = batchA[:,0], batchA[:,1], batchA[:,2], batchA[:,3], batchA[:,4]
         nsd_keyB, capB, _, countB, subj_idB = batchB[:,0], batchB[:,1], batchB[:,2], batchB[:,3], batchB[:,4]
 
-        nsd_key = np.concatenate((nsd_keyA, nsd_keyB))
-        cap     = np.concatenate((capA, capB))
-        sub_id = np.concatenate((subj_idA, subj_idB))
+        caps = np.concatenate((capA, capB), axis=0) 
+        nsd_keys = np.concatenate((nsd_keyA, nsd_keyB), axis=0)
 
-        betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
+        betas_batch = np.zeros((nsd_keys.shape[0], 327684), dtype=np.float32)
 
-        for i, key in enumerate(nsd_key):
-            with open(f"/fast/seagie/data/subj_{sub_id[i]}/betas_averaged/subj0{sub_id[i]}_KID{key}.npy", "rb") as f:
+        idx = 0
+        for i, key in enumerate(nsd_keyA):
+            with open(f"/fast/seagie/data/subj_1/betas_averaged/subj01_KID{key}.npy", "rb") as f:
                 betas_batch[i, :] = np.load(f)
+            idx += 1
+        for i, key in enumerate(nsd_keyB):
+            with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
+                betas_batch[i+idx, :] = np.load(f)
 
-        #for i, key in enumerate(nsd_keyB):
-        #    with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
-        #        betas_batchB[i, :] = np.load(f)
 
         # Tokenize captions
-        cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
+        cap_seqs = self.tokenizer.texts_to_sequences(caps) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = self.max_len, truncating = 'post', padding = 'post')
 
         # Create target
@@ -110,7 +112,7 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        init_state = tf.zeros([nsd_keys.shape[0], self.units], dtype=np.float32)
 
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state), target)

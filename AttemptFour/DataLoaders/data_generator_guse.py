@@ -8,23 +8,26 @@ import logging
 import time
 import tqdm
 import warnings
+from collections import defaultdict
 import concurrent.futures
 
 
 loggerA = logging.getLogger(__name__ + '.data_generator')
 
+#subject = '2'
 nsd_dir = '/home/seagie/NSD2/'
-#captions_path = "/fast/seagie/data/subj_2/captions/"
 captions_path = "/fast/seagie/data/captions/"
-betas_path    = "/fast/seagie/data/subj_2/betas_averaged/"
-guse_path     = "/fast/seagie/data/subj_2/guse_averaged/"
-vgg16_path    = "/fast/seagie/data/subj_2/vgg16/"
+#betas_path    = f"/fast/seagie/data/subj_{subject}/betas_averaged/"
+#guse_path     = f"/fast/seagie/data/subj_{subject}/guse_averaged/"
+#vgg16_path    = f"/fast/seagie/data/subj_{subject}/vgg16/"
 
 class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
 
-    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, pre_load_betas=False, shuffle=True, training=False):
+    def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, subject='2', pre_load_betas=False, shuffle=True, training=False):
         print("initialising DataGenerator")
+        self.subject=subject
+        self.betas_path    = f"/fast/seagie/data/subj_{self.subject}/betas_averaged/"
         self.pairs = np.array(pairs)
         self.batch_size = batch_size
         self.tokenizer = tokenizer
@@ -36,6 +39,8 @@ class DataGenerator(keras.utils.Sequence):
         self.pre_load_betas = pre_load_betas
 
         self.most_active_vert = np.loadtxt("./TrainData/avg_most_active_vert.txt", dtype=np.int32)
+
+        #self.word_to_index, self.index_to_embedding = self.load_glove()
 
 
         if pre_load_betas: 
@@ -67,6 +72,56 @@ class DataGenerator(keras.utils.Sequence):
             np.random.shuffle(self.pairs)
             loggerA.info("shuffling dataset")
 
+    def load_glove(self):
+        word_to_index = dict()
+        index_to_embedding = []
+        data_dir = './chakin_embeddings/'
+        file_name = 'glove.twitter.27B.25d'
+        with open(f"{data_dir}/{file_name}.txt", "r") as f:
+            for (i, line) in enumerate(f):
+                split = line.split(' ')
+                word = split[0]
+                representation = split[1:]
+                #representation = np.array([float(val) for val in representation])
+                representation = np.array(representation, dtype=np.float32)
+
+                word_to_index[word] = i
+                index_to_embedding.append(representation)
+        
+        # Start token
+        i = i + 1
+        word_to_index['<start>'] = i
+        temp = [0.0] * len(representation)
+        temp[0] = 1.0
+        index_to_embedding.append(temp)
+        # End token
+        i = i + 1
+        word_to_index['<end>'] = i
+        temp = [0.0] * len(representation)
+        temp[-1] = 1.0
+        index_to_embedding.append(temp)
+
+        # Unknown word
+        _word_not_found = [0.0] * len(representation)
+        _last_index = i + 1
+        #word_to_index = defaultdict(mod_level_lambda) # necessary for pickling (can't pickla lambda)
+        word_to_index = defaultdict(lambda: _last_index, word_to_index)
+        index_to_embedding = np.array(index_to_embedding + [_word_not_found])
+        print(len(word_to_index))
+        print(index_to_embedding.shape)
+        return word_to_index, index_to_embedding
+
+    def glove_embeddings(self, cap):
+        max_len = self.max_len
+        embedding = np.zeros((cap.shape[0], max_len, 25), dtype=np.float32)
+        for i, c in enumerate(cap):
+            for k, word in enumerate(c):
+                if k >= max_len:
+                    continue
+                embedding[i, k] = self.index_to_embedding[self.word_to_index[word]]
+        return embedding
+
+
     def __getitem__(self, index):
         """ Return one batch """
 
@@ -92,14 +147,13 @@ class DataGenerator(keras.utils.Sequence):
                 betas_batch[i, :] = self.betas[self.nsd_to_idx[key]]
         else:
             for i, key in enumerate(nsd_key):
-                with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
+                with open(f"{self.betas_path}/subj0{self.subject}_KID{key}.npy", "rb") as f:
                     betas_batch[i, :] = np.load(f)
-                #with open(f"{vgg16_path}/SUB2_KID{key}.npy", "rb") as f:
-                #    vgg_batch[i,:] = np.load(f)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = self.max_len, truncating = 'post', padding = 'post')
+        #cap_vector_glove = self.glove_embeddings(cap)
 
         # Create target
         target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
@@ -108,8 +162,6 @@ class DataGenerator(keras.utils.Sequence):
 
         # Init LSTM
         init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
-        #init_state = np.random.normal(0, 0.05, (nsd_key.shape[0], self.units)).astype(np.float32)
-
         
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state), target)

@@ -151,7 +151,6 @@ model = lc_NIC.NIC(
 model.compile(optimizer, loss_object, run_eagerly=True)
 
 ## The following relates to pre-loading LSTM weights 
-"""
 init_generator = generator.DataGenerator(
         train_pairs, 
         config['batch_size'], 
@@ -161,6 +160,9 @@ init_generator = generator.DataGenerator(
         vocab_size, 
         pre_load_betas=False,
         shuffle=False, training=True)
+temp = init_generator.__getitem__(0)[0]
+print("generator out:", temp[0].shape)
+"""
 build_time = time.perf_counter()
 model(init_generator.__getitem__(0)[0])
 print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
@@ -288,11 +290,11 @@ def dotfit():
     model.fit(
             train_generator,
             epochs = config['epochs'],
-            steps_per_epoch = len(train_pairs)//config['batch_size'],
+            steps_per_epoch = train_pairs[0].shape[0]//config['batch_size'],
             batch_size = config['batch_size'],
             callbacks = _callbacks,
             validation_data = val_generator,
-            validation_steps = len(val_pairs)//config['batch_size'],
+            validation_steps = val_pairs[0].shape[0]//config['batch_size'],
             initial_epoch = start_epoch,
             #max_queue_size= 20,
             #workers= 10,
@@ -378,8 +380,8 @@ def custom_train_loop():
 
 if __name__ == '__main__':
     try:
-        custom_train_loop()
-        #dotfit()
+        #custom_train_loop()
+        dotfit()
     except KeyboardInterrupt as e:
         print("--Keyboard Interrupt--")
     finally:

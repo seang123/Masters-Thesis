@@ -9,7 +9,7 @@ import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
 from Model import lc_NIC
-#from Model import tmp_lc_NIC as lc_NIC
+#from Model import glove_NIC as lc_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
 from DataLoaders import data_generator_guse as generator
@@ -21,7 +21,7 @@ from datetime import datetime
 import subprocess
 import yaml
 
-gpu_to_use = 2
+gpu_to_use = 1
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -76,6 +76,7 @@ val_pairs = np.array(loader.create_pairs(val_keys))
 print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 
+#tokenizer = loader.load_tokenizer()
 tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
 #tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
@@ -95,7 +96,7 @@ def lr_schedule(step):
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.01, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':

@@ -10,7 +10,7 @@ import pandas as pd
 #from nv_monitor import monitor 
 
 #gpu_to_use = monitor(5000)
-gpu_to_use = 2
+gpu_to_use = 0
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -30,8 +30,9 @@ with tf.device(f'/gpu:{gpu_to_use}'):
 
 
 #print("--- layers ---")
-#for i in range(0, len(image_model.layers)):
-#    print(image_model.layers[i].output_shape)
+for i in range(0, len(image_model.layers)):
+    print(image_model.layers[i].output_shape)
+raise
 print("Final CNN layer:", image_model.layers[-6].output_shape)
 
 # Pick layer

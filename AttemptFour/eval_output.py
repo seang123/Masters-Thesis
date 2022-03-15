@@ -22,13 +22,18 @@ import guse_comparison as guse_comp
 
 parser = argparse.ArgumentParser(description='Evaluate NIC model')
 parser.add_argument('--dir', type=str, required=True)
+parser.add_argument('--e', type=int, required=False)
 args = parser.parse_args()
 
 data_loc = os.path.join('Log', args.dir, 'eval_out')
-output_loc = f"./Log/{args.dir}/eval_out/output_captions.npy"
-attn_score_loc = f"./Log/{args.dir}/eval_out/attention_scores.npy"
 tokenizer_loc = f"./Log/{args.dir}/eval_out/tokenizer.json"
 out_path = f"./Log/{args.dir}/eval_out/"
+if args.e == None:
+    output_loc = f"./Log/{args.dir}/eval_out/output_captions.npy"
+    attn_score_loc = f"./Log/{args.dir}/eval_out/attention_scores.npy"
+else:
+    output_loc = f"./Log/{args.dir}/eval_out/output_captions_{args.e}.npy"
+    attn_score_loc = f"./Log/{args.dir}/eval_out/attention_scores_{args.e}.npy"
 print(f"out path: {out_path}")
 
 nsd_loader = NSDAccess("/home/seagie/NSD3/")
@@ -615,18 +620,21 @@ def linear_attn_maps(idx, attn_scores):
     plt.savefig(f"{out_path}/linear_attn_maps.png")
     plt.close(fig)
 
+def plot_vocab_dist():
+    return
+
 if __name__ == '__main__':
     outputs, attention_scores = load_data()
     idx =  np.random.randint(0, 1000) # 672 - cattle, 2 - surfer, 946 - snowboarder
     print(f"--- trial: {idx} --- NSD: {val_keys['nsd_key'].iloc[idx]} ---")
 
     # Rank transform
-    attention_scores = rank_transform(attention_scores)
+    #attention_scores = rank_transform(attention_scores)
 
     #print_examples(5, outputs)
 
-    #plot_image_caption(idx, outputs)
-    #attention_by_tag(outputs, attention_scores)
+    plot_image_caption(idx, outputs)
+#    attention_by_tag(outputs, attention_scores)
 
     #guse_comparison(idx, outputs)
 
@@ -638,11 +646,11 @@ if __name__ == '__main__':
     
     #top_region_over_time(idx, attention_scores)
     #visualise_attention(idx, attention_scores, outputs)
-#    avg_attention_across_trials(attention_scores)
+    avg_attention_across_trials(attention_scores)
 
     #regions_count(attention_scores)
 
-    ner(outputs)
+    #ner(outputs)
 
 
 

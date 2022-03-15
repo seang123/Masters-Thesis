@@ -9,7 +9,7 @@ import os, sys
 import tensorflow as tf
 import numpy as np
 import tqdm
-from Model import NIC, lc_NIC
+#from Model import NIC, lc_NIC
 from DataLoaders import load_avg_betas as loader
 from DataLoaders import data_generator_guse as generator
 from nsd_access import NSDAccess
@@ -20,7 +20,7 @@ import argparse
 #import cortex
 from itertools import groupby
 
-gpu_to_use = 2
+gpu_to_use = 1
 
 # Allow memory growth on GPU device
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -44,9 +44,13 @@ out_path = os.path.join(config['log'], run_name, 'eval_out')
 np.random.seed(config['seed'])
 tf.random.set_seed(config['seed'])
 
+## Import model file
+import importlib
+lc_NIC = importlib.import_module(f'Log.{args.dir}.lc_NIC')
+
 ## Parameters
 vocab_size = config['top_k'] + 1
-batch_size = 128
+batch_size = 64
 
 if not os.path.exists(out_path):
     os.makedirs(out_path)
@@ -82,7 +86,7 @@ print(f"val_pairs  : {len(val_pairs)}")
 
 #val_generator = create_generator(train_pairs, training=False)
 val_generator = generator.DataGenerator(
-        val_pairs,
+        val_pairs, 
         batch_size, 
         tokenizer, 
         config['units'], 
@@ -374,6 +378,7 @@ def eval_model():
     """ Runs the generators input through the model and returns the output and attention scores """
 
     all_outputs = []
+    all_outputs_raw = []
     all_attention_scores = []
 
     print(len(val_generator))
@@ -387,21 +392,27 @@ def eval_model():
 
         start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
 
-        outputs, attention_scores = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
+        outputs, outputs_raw, attention_scores = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
         all_outputs.append(outputs)
+        all_outputs_raw.append(outputs_raw)
         all_attention_scores.append(attention_scores)
 
     print("all_outputs[0]:", all_outputs[0].shape) # (128, 13, 1)
+    print("all_outputs_raw[0]:", all_outputs_raw[0].shape)
 
     #outputs = np.swapaxes(np.concatenate((all_outputs), axis=1), 0, 1)
     outputs = np.concatenate((all_outputs), axis=0)
+    outputs_raw = np.concatenate((all_outputs_raw), axis=0)
     attention_scores = np.swapaxes(np.concatenate((all_attention_scores), axis=1), 0, 1)
     print("outputs:", outputs.shape)
+    print("outputs_raw:", outputs_raw.shape)
     print("attention scores:", attention_scores.shape)
 
-    with open(f"{out_path}/output_captions.npy", "wb") as f:
+    with open(f"{out_path}/output_captions_{args.e}.npy", "wb") as f:
         np.save(f, outputs)
-    with open(f"{out_path}/attention_scores.npy", "wb") as f:
+    with open(f"{out_path}/output_captions_raw_{args.e}.npy", "wb") as f:
+        np.save(f, outputs_raw)
+    with open(f"{out_path}/attention_scores_{args.e}.npy", "wb") as f:
         np.save(f, attention_scores)
     with open(f"{out_path}/tokenizer.json", "w") as f:
         f.write(tokenizer.to_json())

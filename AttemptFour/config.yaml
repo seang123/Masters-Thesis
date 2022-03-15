@@ -1,11 +1,12 @@
 ---
  # Name the current run
- run: multi_sub
+ run: attn_bn
 
  info: | 
-     test smaller lstm/embedding
-     constant learning rate of 0.0001
+     batch norm on attn weights
      dropout
+     no attention loss
+     constant learning rate of 0.0001
      deep output non linear layer
      using learning rate schedule
      trained on subj 2 samples
@@ -23,25 +24,26 @@
  seed: 42
 
  # Training
- epochs: 100 # 25
+ epochs: 100
  batch_size: 64
  max_length: 15
+ top_k: 5000 # vocab size
  optimizer: Adam
  alpha: 0.0001
  clipnorm: 0.1
  decay: 0 #1.0e-4
 
  dropout_input: 0 # 0.1 
- dropout_features:  0.2 # 0.2 
- dropout_text: 0.2 # 0.2
- dropout_lstm: 0.2 # 0.2 
- dropout_attn: 0.2 # 0.2 
+ dropout_features:  0.2 
+ dropout_text: 0.2
+ dropout_lstm: 0.2 
+ dropout_attn: 0.2 
  dropout_out: 0.2
 
- input_reg: 0.01 # 0.002         # scientific notation requires decimal notation - x.0e
- attn_reg: 0.001 # 0.01
- lstm_reg: 0.00003 # 0.0003 
- output_reg: 0.00001 # 1.3e-5
+ input_reg: 0.01         # scientific notation requires decimal notation - x.0e
+ attn_reg: 0.001
+ lstm_reg: 0.00003
+ output_reg: 0.00001 
 
  # Input size
  input: 
@@ -51,12 +53,11 @@
      mscoco: 4096
 
  # Model size 
- units: 512 # lstm
+ units: 512 # 2048 # lstm
  attn_units: 32
  group_size: 32 # acts as embedding dim for attention model
- embedding_features: 128
- embedding_text: 128
- top_k: 5000
+ embedding_features: 512
+ embedding_text: 512
 
 
 

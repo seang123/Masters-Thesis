@@ -56,7 +56,6 @@ class NIC(tf.keras.Model):
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
 
-        """
         # For use with:  attention
         self.dense_in = img_localDense.LocallyDense(
             n_features = 512,
@@ -67,8 +66,8 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
         )
-        """
 
+        """
         # No attention model 
         self.bn = BatchNormalization()
         self.dense_in_1 = Dense(
@@ -79,19 +78,17 @@ class NIC(tf.keras.Model):
             bias_initializer='zeros',
             name = 'dense'
         )
-
         """
+
         self.dropout_attn = Dropout(dropout_attn)
         self.attention = attention.Attention(
             units = attn_units,
-            use_bias = True,
             dropout = self.dropout_attn,
             activation= LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
-        """
 
         # Text input
         self.embedding = Embedding(
@@ -148,9 +145,9 @@ class NIC(tf.keras.Model):
         loggerA.debug("Model initialized")
 
     def call(self, data, training=False):
-        #return self.call_attention(data, training)
+        return self.call_attention(data, training)
         #return self.call_lc(data, training)
-        return self.call_fc(data, training)
+        #return self.call_fc(data, training)
 
 
     def call_attention(self, data, training=False):
@@ -269,11 +266,9 @@ class NIC(tf.keras.Model):
             ) # (bs, max-length, vocab_size)
 
             # Attention Loss
-            """
             attn_across_time = tf.reduce_sum(tf.squeeze(attention_scores,axis=-1), axis=1)
             attention_target = tf.ones(attn_across_time.shape, dtype=tf.float32)
             attn_loss = self.MSE(attention_target, attn_across_time)
-            """
 
             # Cross-entropy loss & Accuracy
             for i in range(0, target.shape[1]):
@@ -330,11 +325,9 @@ class NIC(tf.keras.Model):
         )
 
         # Attention Loss
-        """
         attn_across_time = tf.reduce_sum(tf.squeeze(attention_scores,axis=-1), axis=1)
         attention_target = tf.ones(attn_across_time.shape, dtype=tf.float32)
         attn_loss = self.MSE(attention_target, attn_across_time)
-        """
 
         # Cross-entropy & Accuracy
         for i in range(0, target.shape[1]):

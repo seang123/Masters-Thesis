@@ -36,4 +36,3 @@ class LocallyDense(tf.keras.layers.Layer):
         out = self.do(out, training=training)
 
         return out
-

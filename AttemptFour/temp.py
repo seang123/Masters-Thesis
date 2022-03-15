@@ -9,11 +9,73 @@ import sys
 import nibabel as nb
 #import cortex
 import tbparse
-
+from DataLoaders import load_avg_betas as loader
 from nsd_access import NSDAccess
 import subprocess
 
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu, corpus_bleu
 
+
+x1 = [0.1, 0.05, 0.05, 0.2, 0.6]
+x2 = [0.01, 0.02, 0.03, 0.01, 0.93]
+
+y = [0, 0, 0, 0, 1]
+
+import tensorflow as tf
+cce = tf.keras.losses.CategoricalCrossentropy()
+print("x1: ", cce(y, x1).numpy())
+print("x2: ", cce(y, x2).numpy())
+
+def ce(y, x):
+    return -sum([y[i] * np.log(x[i]) for i in range(len(x))])
+
+print("x1: ", ce(y, x1))
+print("x2: ", ce(y, x2))
+
+sys.exit(0)
+
+### Test BLEU scores
+
+
+ref = [['hello', 'this', 'is', 'a', 'test']]
+hyp = ['hello', 'there', 'you', 'person', 'this']
+
+print(2/5)
+
+weights = [
+    (1, 0, 0, 0),
+    (0, 1, 0, 0),
+    (0, 0, 1, 0),
+    (0, 0, 0, 1),
+    #(1./1., 0., 0., 0.),
+    #(1./2., 1./2., 0., 0.),
+    #(1./3., 1./3., 1./3., 0.),
+    #(1./4., 1./4., 1./4., 1./4.)
+]
+
+for w in weights:
+    b = sentence_bleu(ref, hyp, weights = w)
+    print(b)
+
+
+
+sys.exit(0)
+
+tokenizer2 = loader.load_tokenizer()
+#tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), 5000)
+
+#js = tokenizer.to_json()
+#import json
+#with open('tokenizer_73k.json', 'w') as f:
+#    json.dump(js, f)
+
+
+#d = tokenizer.word_counts
+#print(type(d))
+
+for i in range(50):
+    #print(tokenizer.index_word[i], tokenizer2.index_word[i])
+    print(tokenizer2.index_word[i])
 
 sys.exit(0)
 # Generate Val/Test split

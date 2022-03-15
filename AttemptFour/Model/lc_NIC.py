@@ -2,6 +2,8 @@ import tensorflow as tf
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
+import sys
+sys.path.append("/home/seagie/NSD/Code/Masters-Thesis/AttemptFour/Model")
 from tensorflow.keras.layers import (Dense,
                             LSTM,
                             BatchNormalization,
@@ -18,12 +20,12 @@ from tensorflow.keras.initializers import RandomUniform, GlorotNormal
 from tensorflow.keras.regularizers import L2
 from tensorflow_addons import seq2seq
 from tensorflow_addons.rnn import LayerNormLSTMCell
-from . import layers
-from . import attention
-from . import localDense
-from . import fullyConnected
-from . import agc
-import sys
+import layers
+import deep_layers
+import attention
+import localDense
+import fullyConnected
+import agc
 import numpy as np
 from collections import defaultdict
 import logging
@@ -54,9 +56,6 @@ class NIC(tf.keras.Model):
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
         self.MSE = tf.keras.losses.MeanSquaredError()
 
-        self.batchnorm_in = tf.keras.layers.BatchNormalization(
-                name = 'input_bn')
-
         """
         self.dense_in = fullyConnected.FullyConnected(
                 embed_dim = embedding_features,
@@ -84,7 +83,6 @@ class NIC(tf.keras.Model):
         self.dense_in = layers.LocallyDense(
             groups,
             dropout = self.dropout,
-            batch_norm = self.batchnorm_in,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
@@ -103,7 +101,8 @@ class NIC(tf.keras.Model):
         )
 
         # Text input
-        self.embedding = Embedding(vocab_size, 
+        self.embedding = Embedding(
+            vocab_size, 
             embedding_text, 
             embeddings_initializer=RandomUniform(-0.08, 0.08),
             mask_zero=True,
@@ -112,25 +111,27 @@ class NIC(tf.keras.Model):
         )
 
         # LSTM layer
-        self.lstm = LSTM(units,
-            return_sequences=True,
-            return_state=True,
-            kernel_regularizer=self.l2_lstm,
-            dropout=dropout_lstm,
-            name = 'lstm'
-        )
-        """
-        #self.lstm.trainable=False # freeze layer 
-        self.lnLSTMCell = LayerNormLSTMCell(units,
-                kernel_regularizer=self.l2_lstm,
-                )
-        self.lstm = tf.keras.layers.RNN(
-                self.lnLSTMCell, 
-                return_sequences=True, 
+        use_layer_norm = False
+        if not use_layer_norm:
+            self.lstm = LSTM(units,
+                return_sequences=True,
                 return_state=True,
-                name='lstm'
-        )
-        """
+                kernel_regularizer=self.l2_lstm,
+                dropout=dropout_lstm,
+                name = 'lstm'
+            )
+            #self.lstm.trainable=False # freeze layer 
+        else:
+            print("Using layer-norm LSTM")
+            self.lnLSTMCell = LayerNormLSTMCell(units,
+                    kernel_regularizer=self.l2_lstm,
+                    )
+            self.lstm = tf.keras.layers.RNN(
+                    self.lnLSTMCell, 
+                    return_sequences=True, 
+                    return_state=True,
+                    name='lstm'
+            )
 
         # Intermediary output dense layer
         self.dense_inter = TimeDistributed(
@@ -558,6 +559,7 @@ class NIC(tf.keras.Model):
 
         attention_scores = []
         outputs = []
+        outputs_raw = []
         for i in range(max_len):
             context, attention_score = self.attention(a, features, training=training)
             context = self.expand(context)
@@ -574,6 +576,7 @@ class NIC(tf.keras.Model):
             output = self.dense_inter(seq, training=training)
             output = self.dropout_output(output, training=training)
             output = self.dense_out(output, training=training) # (bs, 1, 5001)
+            outputs_raw.append(output)
 
             # Greedy choice
             word = np.argmax(output, axis=-1)
@@ -584,8 +587,9 @@ class NIC(tf.keras.Model):
 
         # outputs -> np.array == (max_len, bs, 1)
         outputs = np.stack(outputs, axis=1)
+        outputs_raw = np.concatenate(outputs_raw, axis=1)
         assert outputs.shape == (features.shape[0], max_len, 1)
-        return outputs, np.array(attention_scores)
+        return outputs, outputs_raw, np.array(attention_scores)
 
     def beam_search(self, features, start_seq, max_len, units):
 

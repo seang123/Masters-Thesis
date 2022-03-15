@@ -6,6 +6,7 @@ from nsd_access import NSDAccess
 import pandas as pd
 import my_utils as uu
 import time
+import json
 import re
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
@@ -15,6 +16,7 @@ import yaml
 import nibabel as nb
 from concurrent.futures import ThreadPoolExecutor
 
+print("-----------load_avg_betas.py------------")
 
 np.random.seed(42)
 
@@ -95,6 +97,7 @@ def get_groups(out_dim, separate_hemi=False):
         #return groups[1:], [len(g)//50 for g in groups[1:]]
         #return groups_lh[1:], groups_rh[1:], [out_dim for i in range(1, len(groups_lh))], [out_dim for i in range(1, len(groups_rh))]
 
+print("-----------load_avg_betas.py------------")
 ## =====================
 
 def timeit(func):
@@ -108,7 +111,20 @@ def timeit(func):
 
 def remove_stop_words(list_of_words: list):
     stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"]
+    stop_words = []
+    with open(f"stop_words.txt", 'r') as f:
+        cont = f.read()
+        for i, line in enumerate(cont):
+            stop_words.append(str(line.strip()))
     return [i for i in list_of_words if i not in stop_words]
+
+@timeit
+def load_tokenizer():
+    print("Loading tokenizer from disk: fit on all 73k NSD images with vocab size of 5000")
+    with open("./TrainData/tokenizer_73k.json", 'r') as f:
+        tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json.load(f))
+    return tokenizer
+
 
 @timeit
 def build_tokenizer(nsd_keys: list, top_k = 5000):
@@ -145,7 +161,7 @@ def build_tokenizer(nsd_keys: list, top_k = 5000):
                 for i in content.splitlines():
                     cap = i.replace(".", " ").replace(",", " ").strip().split(" ")
                     cap = [i.lower() for i in cap if i != '']
-                    #cap = remove_stop_words(cap)
+                    cap = remove_stop_words(cap)
                     cap = ['<start>'] + cap + ['<end>']
                     avg_caption_length += len(cap)
                     cap = " ".join(cap)
@@ -194,7 +210,7 @@ def get_shr_nsd_keys(nsd_dir: str) -> list:
     return ngd.get_1000(nsd_dir)
 
 @timeit
-def create_pairs(keys: list, subj='2'):
+def create_pairs(keys: list, subj='2', single=False):
     """ returns NSD_key - caption pairs
 
     Parameters
@@ -219,11 +235,13 @@ def create_pairs(keys: list, subj='2'):
             for line in content.splitlines():
                 cap = line.replace(".", " ").replace(",", " ").strip().split(" ")
                 cap = [i.lower() for i in cap]
-                #cap = remove_stop_words(cap)
+                cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
                 pairs.append( (key, cap, cid, count, subj) )
                 cid += 1
+                if single:
+                    break
 
     return pairs
 

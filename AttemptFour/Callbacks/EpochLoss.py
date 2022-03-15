@@ -41,13 +41,11 @@ class LossHistory(Callback):
         self.df.to_csv(self.file_name, index=False)
         loggerA.info(f'saving loss history to csv - epoch: {epoch}')
 
-        """
         if epoch == 0:
             with open(f'{self.summary_path}/modelsummary.txt', 'w') as f:
                 with redirect_stdout(f):
                     self.model.summary()
                     loggerA.info(f"saving model summary to: {f.name}")
-        """
 
     def on_train_end(self, logs=None):
         self.df.to_csv(self.file_name, index=False) 

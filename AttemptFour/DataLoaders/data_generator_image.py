@@ -75,13 +75,13 @@ class DataGenerator(keras.utils.Sequence):
 
         #data_batch   = None #np.zeros((nsd_key.shape[0], 327684), dtype=np.float32) # Betas
         #guse_batch   = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)   # GUSE
-        data_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)        # FC out layer
-        #data_batch   = np.zeros((nsd_key.shape[0], 512, 196), dtype=np.float32)     # CNN out layer
+        #data_batch   = np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)        # FC out layer
+        data_batch   = np.zeros((nsd_key.shape[0], 512, 196), dtype=np.float32)     # CNN out layer
 
         # Read data from disk
         for i, key in enumerate(nsd_key):
             #with open(f"/fast/seagie/images_vgg16_cnn_out/KID_{key}.npy", "rb") as f:
-            with open(f"{vgg16_path}/KID_{key}.npy", "rb") as f:
+            with open(f"{vgg16_path_cnn}/KID_{key}.npy", "rb") as f:
                 data_batch[i] = np.load(f).astype(np.float32)
 
         # Tokenize captions
@@ -94,7 +94,7 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = np.zeros([nsd_key.shape[0], self.units], dtype=data_batch.dtype)
+        init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=data_batch.dtype)
 
         if self.training:
             return ((data_batch, cap_vector, init_state, init_state), target)

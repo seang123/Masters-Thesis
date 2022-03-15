@@ -54,15 +54,29 @@ def var_explained():
     print(f"500 components: {cs[500]}") 
     print(f"5000 components: {cs[-1]}") 
 
+    ninty_percent = np.where(cs > 0.9)[0][0]
+    fifty_percent = np.where(cs > 0.5)[0][0]
+
     fig = plt.figure()
-    plt.plot(np.cumsum(x))
+    plt.plot(cs)
+    plt.vlines(ninty_percent, cs[ninty_percent]-0.02, cs[ninty_percent]+0.02, colors='darkslategray')
+    plt.text(ninty_percent-100, cs[ninty_percent]-0.06, s='90%')
+    plt.text(ninty_percent-200, cs[ninty_percent]-0.1, s=f'({ninty_percent})')
+
+    plt.vlines(fifty_percent, cs[fifty_percent]-0.02, cs[fifty_percent]+0.02, colors='darkslategray')
+    plt.text(fifty_percent+100, cs[fifty_percent]-.01, s='50%')
+    plt.text(fifty_percent+450, cs[fifty_percent]-.01, s=f'({fifty_percent})')
+
+    plt.title("Explained variance ratio of 5000 PCA components")
+    plt.xlabel("nr. Components")
+    plt.ylabel("Cumulative expl. var. ratio")
     plt.savefig("./cumsum_pca.png")
     plt.close(fig)
 
 if __name__ == '__main__':
     #compute_pca()
-    #var_explained()
-    attn_scores_pca()
+    var_explained()
+    #attn_scores_pca()
 
 
 

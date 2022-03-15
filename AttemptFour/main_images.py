@@ -15,7 +15,7 @@ from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from datetime import datetime
 
-gpu_to_use = 2
+gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
@@ -64,7 +64,8 @@ print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 print("Captions created")
 
-tokenizer, _ = loader.build_tokenizer(all_keys, config['top_k'])
+#tokenizer, _ = loader.build_tokenizer(all_keys, config['top_k'])
+tokenizer = loader.load_tokenizer()
 print("Tokenizer built")
 
 
@@ -78,8 +79,8 @@ def lr_schedule(step):
     decay_rate = 0.01 
     inital_lr = 0.01
     final_lr = 0.0001
-    #return 0.0001
-    return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
+    #return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
+    return 0.0001
 
 # Setup optimizer 
 optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
@@ -206,10 +207,10 @@ def dotfit():
             pre_load_betas=False,
             shuffle=False, training=True)
 
-    #build_time = time.perf_counter()
-    #model.build(val_generator.__getitem__(0)[0])
-    #print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
-    #print(model.summary())
+    build_time = time.perf_counter()
+    model(val_generator.__getitem__(0)[0])
+    print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
+    print(model.summary())
 
     model.fit(
             train_generator,

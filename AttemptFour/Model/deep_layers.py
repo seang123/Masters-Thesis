@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import LeakyReLU, ELU, BatchNormalization
+from tensorflow.keras.layers import LeakyReLU, ELU
 from tensorflow.keras.initializers import HeNormal
 import tensorflow_addons as tfa
 
@@ -12,7 +12,7 @@ class LocallyDense(tf.keras.layers.Layer):
     concatenated to a single tensor such that locality in the
     separate groups is conserved. Input groups may be overlapping.
     '''
-    def __init__(self, groups, dropout, **kwargs):
+    def __init__(self, groups, dropout, depth=1, **kwargs):
         '''
         input_groups    -   list of n tensors. Each tensor contains indices
                             of the input dimensions belonging to goup n
@@ -28,28 +28,49 @@ class LocallyDense(tf.keras.layers.Layer):
 
         in_groups, out_groups = groups
         assert len(in_groups) == len(out_groups), "Input groups don't match ouput groups"
-
-        # Create a layer for each output group
-        self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
-        assert len(self.dense_layers) == 360, "Incorrect nr. of encoder layers"
-        self.dense_layers2 = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
-
-        # Combine the input groups
         self.input_groups = in_groups
+        self.n_features = len(in_groups)
+        print("in_groups:", len(in_groups))
+
+        self.depth = depth
+        print("Encoder depth:", depth)
+
+        # First decoder layer
+        self.first_layer = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
+        self.first_batch_norm = tf.keras.layers.BatchNormalization()
+
+        # Create a layer for each output group of depth n
+        self.layers = []
+        for i in range(depth):
+            self.layers.append( [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups] )
 
         self.dropout = dropout
-        self.bn = tf.keras.layers.BatchNormalization(name = 'input_bn')
-        #self.bn = tf.keras.layers.LayerNormalization()
+
+        self.bn = []
+        for i in range(depth):
+            self.bn.append( tf.keras.layers.BatchNormalization() )
+
+    def one_layer(self, x, depth, training=False):
+        out = [layer(x[:,region,:], training=training) for (layer, region) in zip(self.layers[depth], range(self.n_features))]
+        out = tf.convert_to_tensor(out)
+        out = tf.transpose(out, perm=[1,0,2]) # => (bs, 512, n_features)
+        out = self.bn[depth](out, training=training)
+        out = self.dropout(out, training=training)
+        return out 
+
 
     def call(self, x, training=False):
         """ Forward pass """
-        out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.dense_layers, self.input_groups)] 
+        out = [layer(tf.gather(x, idx, axis=1), training=training) for (layer, idx) in zip(self.first_layer, self.input_groups)] 
         # out => regions * (bs, embed_dim)
 
         out = tf.convert_to_tensor(out)
         out = tf.transpose(out, perm=[1,0,2]) # (bs, n_regions, dim)
-        out = self.bn(out, training=training)
+        out = self.first_batch_norm(out, training=training)
         out = self.dropout(out, training=training)
+
+        for i in range(self.depth):
+            out = self.one_layer(out, i, training)
 
         return out  
 
