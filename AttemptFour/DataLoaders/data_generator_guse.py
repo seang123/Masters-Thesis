@@ -38,11 +38,9 @@ class DataGenerator(keras.utils.Sequence):
         self.training = training
         self.pre_load_betas = pre_load_betas
 
-        self.most_active_vert = np.loadtxt("./TrainData/avg_most_active_vert.txt", dtype=np.int32)
+        #self.most_active_vert = np.loadtxt("./TrainData/avg_most_active_vert.txt", dtype=np.int32)
 
         #self.word_to_index, self.index_to_embedding = self.load_glove()
-
-
         if pre_load_betas: 
             warnings.warn("Pre-loading betas... Make sure generator is properly configured. Doesn't work with more than 1 subject")
             self.nsd_to_idx = {}
@@ -133,27 +131,31 @@ class DataGenerator(keras.utils.Sequence):
 
         Takes a batch from the pairs array and returns the appropriate data
         """
-        nsd_key, cap, guse_key, count = batch[:,0], batch[:,1], batch[:,2], batch[:,3]
+        nsd_key, cap, guse_key, count, sub = batch[:,0], batch[:,1], batch[:,2], batch[:,3], batch[:,-1]
+        batch_size = nsd_key.shape[0]
         #count   = count.astype(np.int32)
 
         # Pre-allocate memory
-        betas_batch = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
+        betas_batch = np.zeros((batch_size, 327684), dtype=np.float32)
         guse_batch  = None # np.zeros((nsd_key.shape[0], 512), dtype=np.float32)
         vgg_batch   = None # np.zeros((nsd_key.shape[0], 4096), dtype=np.float32)
 
         # Load data 
-        if self.pre_load_betas: 
-            for i, key in enumerate(nsd_key):
-                betas_batch[i, :] = self.betas[self.nsd_to_idx[key]]
-        else:
-            for i, key in enumerate(nsd_key):
-                with open(f"{self.betas_path}/subj0{self.subject}_KID{key}.npy", "rb") as f:
+        #if self.pre_load_betas: 
+        #    for i, key in enumerate(nsd_key):
+        #        betas_batch[i, :] = self.betas[self.nsd_to_idx[key]]
+        #else:
+        for i, key in enumerate(nsd_key):
+            if sub[i] == '1':
+                with open(f"/fast/seagie/data/subj_1/betas_averaged/subj01_KID{key}.npy", "rb") as f:
+                    betas_batch[i, :] = np.load(f)
+            else:
+                with open(f"/fast/seagie/data/subj_2/betas_averaged/subj02_KID{key}.npy", "rb") as f:
                     betas_batch[i, :] = np.load(f)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = self.max_len, truncating = 'post', padding = 'post')
-        #cap_vector_glove = self.glove_embeddings(cap)
 
         # Create target
         target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
@@ -161,7 +163,7 @@ class DataGenerator(keras.utils.Sequence):
         target = to_categorical(target, self.vocab_size)
 
         # Init LSTM
-        init_state = tf.zeros([nsd_key.shape[0], self.units], dtype=np.float32)
+        init_state = tf.zeros([batch_size, self.units], dtype=np.float32)
         
         if self.training:
             return ((betas_batch, cap_vector, init_state, init_state), target)

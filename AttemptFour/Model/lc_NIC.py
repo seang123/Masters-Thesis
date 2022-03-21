@@ -94,7 +94,7 @@ class NIC(tf.keras.Model):
         self.attention = attention.Attention(
             units=attn_units,
             dropout=self.dropout_attn,
-            activation=LeakyReLU(0.2),
+            activation=None, # LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
@@ -111,8 +111,9 @@ class NIC(tf.keras.Model):
         )
 
         # LSTM layer
-        use_layer_norm = False
+        use_layer_norm = True
         if not use_layer_norm:
+            print("-- Using standard LSTM --")
             self.lstm = LSTM(units,
                 return_sequences=True,
                 return_state=True,
@@ -225,12 +226,10 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_in(img_input, training=training) 
-        features = self.dropout(features, training=training)
+        features = self.dropout(self.dense_in(img_input, training=training), training=training)
 
         # Embed the caption vector
-        text = self.embedding(text_input) # (bs, max_len, embed_dim)
-        text = self.dropout_text(text, training=training)
+        text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
 
         # init state
         a = tf.convert_to_tensor(a0) # (bs, units)
@@ -253,15 +252,12 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            out = self.dropout_lstm(a, training=training)
-            output.append(out)
+            output.append(self.dropout_lstm(a, training=training))
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
-        output = self.dense_inter(output, training=training)
-        output = self.dropout_output(output, training=training)
-        output = self.dense_out(output, training=training) # (bs, max_len, vocab_size)
+        output = self.dense_out(self.dropout_output(self.dense_inter(output, training=training), training=training), training=training) # (bs, max_len, vocab_size)
 
         return output, tf.convert_to_tensor(attention_scores)
 
@@ -351,7 +347,6 @@ class NIC(tf.keras.Model):
         attn_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
-
         with tf.GradientTape() as tape:
 
             # Call model on sample

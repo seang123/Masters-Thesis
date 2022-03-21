@@ -16,9 +16,9 @@ import yaml
 import nibabel as nb
 from concurrent.futures import ThreadPoolExecutor
 
-print("-----------load_avg_betas.py------------")
+print("------------load_avg_betas.py-------------")
 
-np.random.seed(42)
+#np.random.seed(42)
 
 data_dir = '/huge/seagie/data_meaned/'
 nsd_dir = '/home/seagie/NSD2/'
@@ -97,14 +97,14 @@ def get_groups(out_dim, separate_hemi=False):
         #return groups[1:], [len(g)//50 for g in groups[1:]]
         #return groups_lh[1:], groups_rh[1:], [out_dim for i in range(1, len(groups_lh))], [out_dim for i in range(1, len(groups_rh))]
 
-print("-----------load_avg_betas.py------------")
+print("------------load_avg_betas.py-------------")
 ## =====================
 
 def timeit(func):
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         out = func(*args, **kwargs)
-        print(f"{func.__name__} - {(time.perf_counter() - start):.3f} sec")
+        print(f"> {func.__name__} - {(time.perf_counter() - start):.3f} sec")
         return out
     return wrapper
 
@@ -116,14 +116,13 @@ def remove_stop_words(list_of_words: list):
         cont = f.read()
         for i, line in enumerate(cont):
             stop_words.append(str(line.strip()))
+    stop_words = set(stop_words)
     return [i for i in list_of_words if i not in stop_words]
 
 @timeit
 def load_tokenizer():
     print("Loading tokenizer from disk: fit on all 73k NSD images with vocab size of 5000")
-    with open("./TrainData/tokenizer_73k.json", 'r') as f:
-        tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(json.load(f))
-    return tokenizer
+    return tf.keras.preprocessing.text.tokenizer_from_json(json.load(open("./TrainData/tokenizer_73k.json", "r")))
 
 
 @timeit
@@ -161,7 +160,7 @@ def build_tokenizer(nsd_keys: list, top_k = 5000):
                 for i in content.splitlines():
                     cap = i.replace(".", " ").replace(",", " ").strip().split(" ")
                     cap = [i.lower() for i in cap if i != '']
-                    cap = remove_stop_words(cap)
+                    #cap = remove_stop_words(cap)
                     cap = ['<start>'] + cap + ['<end>']
                     avg_caption_length += len(cap)
                     cap = " ".join(cap)
@@ -179,6 +178,11 @@ def build_tokenizer(nsd_keys: list, top_k = 5000):
 
     return tokenizer, all_captions
 
+def get_test_set():
+    # 515 keys that all 8 subjects saw are our test set
+    df = pd.read_csv(f'./TrainData/test_conditions.csv')
+    return df['nsd_key'].values
+
 def get_nsd_keys(subj: str = '2') -> (list, list):
     """ Get the NSD keys for a subject 
 
@@ -195,14 +199,21 @@ def get_nsd_keys(subj: str = '2') -> (list, list):
     """
 
     df = pd.read_csv(f'./TrainData/subj0{subj}_conditions.csv')
+    df_test = pd.read_csv(f'./TrainData/test_conditions.csv')
 
     unq = df['nsd_key'].loc[df['is_shared']==0]
     shrd = df['nsd_key'].loc[df['is_shared']==1]
+    test = df_test['nsd_key'].values
     
     assert len(unq) == 9000, "incorrect amount of unq keys"
     assert len(shrd) == 1000, "incorrect amount of shrd keys"
+    assert len(test) == 515, f"incorrect amount of test keys: {len(test)}"
 
-    return unq.values, shrd.values
+    # remove test keys from val set
+    shrd = shrd.values
+    shrd = np.array([i for i in shrd if i not in test])
+
+    return unq.values, shrd, test
         
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
@@ -219,8 +230,8 @@ def create_pairs(keys: list, subj='2', single=False):
             list of unique nsd keys
         subj: int or str
             an id of the current subject - should match the passed keys 
-        captions_path : str
-            path to the caption files
+        single: bool
+            if True load only the first caption
     Returns
     -------
         pairs : list
@@ -235,7 +246,7 @@ def create_pairs(keys: list, subj='2', single=False):
             for line in content.splitlines():
                 cap = line.replace(".", " ").replace(",", " ").strip().split(" ")
                 cap = [i.lower() for i in cap]
-                cap = remove_stop_words(cap)
+                #cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
                 pairs.append( (key, cap, cid, count, subj) )

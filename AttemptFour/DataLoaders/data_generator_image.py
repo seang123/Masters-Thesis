@@ -84,6 +84,9 @@ class DataGenerator(keras.utils.Sequence):
             with open(f"{vgg16_path_cnn}/KID_{key}.npy", "rb") as f:
                 data_batch[i] = np.load(f).astype(np.float32)
 
+        # The Xu. et al. paper uses 196x512 input
+        #data_batch = np.swapaxes(data_batch, 2, 1)
+
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32
         cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = self.max_len, truncating = 'post', padding = 'post')

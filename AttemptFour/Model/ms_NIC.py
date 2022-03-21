@@ -49,6 +49,8 @@ class NIC(tf.keras.Model):
         self.dropout_input = Dropout(dropout_input)
         self.dropout = Dropout(dropout_features)
         self.dropout_text = Dropout(dropout_text)
+        self.dropout_lstm = Dropout(0.2)
+        self.dropout_output = Dropout(0.2)
 
         #self.relu = ReLU()
         self.MSE = tf.keras.losses.MeanSquaredError()
@@ -79,23 +81,15 @@ class NIC(tf.keras.Model):
 
         # For use with:  attention
         self.dropout_attn = Dropout(dropout_attn)
-        self.dense_inA = layers.LocallyDense(
-            in_groups, 
-            out_groups, 
-            activation=LeakyReLU(0.2),
-            kernel_initializer='he_normal',
-            kernel_regularizer=self.l2_in,
-            #name = 'lc_dense_in'
-        )
-        self.dense_inB = layers.LocallyDense(
-            in_groups, 
-            out_groups, 
+        self.dense_in = layers.LocallyDense(
+            groups,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
         )
 
+        self.dropout_attn = Dropout(dropout_attn)
         self.attention = attention.Attention(
             units = attn_units,
             dropout = self.dropout_attn,
@@ -121,8 +115,6 @@ class NIC(tf.keras.Model):
             return_sequences=True,
             return_state=True,
             kernel_regularizer=self.l2_lstm,
-            #kernel_initializer=RandomUniform(-0.08, 0.08),
-            #recurrent_initializer=RandomUniform(-0.08, 0.08),
             dropout=dropout_lstm,
             name = 'lstm'
         )
@@ -138,6 +130,17 @@ class NIC(tf.keras.Model):
         )
         """
 
+        # Intermediary output dense layer
+        self.dense_inter = TimeDistributed(
+            Dense(
+                256,
+                activation=LeakyReLU(0.2),
+                kernel_regularizer=self.l2_out,
+                kernel_initializer=GlorotNormal(),
+                bias_initializer='zeros',
+            ),
+            name = 'time_distributed_nonlinear'
+        )
         # Output dense layer
         self.dense_out = TimeDistributed(
             Dense(
@@ -174,7 +177,7 @@ class NIC(tf.keras.Model):
         a = tf.convert_to_tensor(a0) # (bs, embed_dim)
         c = tf.convert_to_tensor(c0)
 
-        attention_weights = tf.zeros((features.shape[0], features.shape[1], 1))
+        attention_weights = []
 
         output = []
         # Pass through LSTM
@@ -183,20 +186,23 @@ class NIC(tf.keras.Model):
             context, attn_weights = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
-            attention_weights += attn_weights
+            attention_scores.append( attn_weights )
 
             # combine context with word
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a0, c0], training=training)
-            output.append(a)
+            out = self.dropout_lstm(a, training=training)
+            output.append(out)
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
+        output = self.dense_inter(output, training=training)
+        output = self.dropout_output(output, training=training)
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
-        return output, attention_weights
+        return output, tf.convert_to_tensor(attention_weights)
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
@@ -205,7 +211,7 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_inA(img_input, training) 
+        features = self.dense_in(img_input, training) 
         features = self.dropout(features, training=training)
 
         # Embed the caption vector
@@ -216,7 +222,7 @@ class NIC(tf.keras.Model):
         a = tf.convert_to_tensor(a0) # (bs, embed_dim)
         c = tf.convert_to_tensor(c0)
 
-        attention_weights = tf.zeros((features.shape[0], features.shape[1], 1))
+        attention_scores = []
 
         output = []
         # Pass through LSTM
@@ -225,20 +231,23 @@ class NIC(tf.keras.Model):
             context, attn_weights = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
-            attention_weights += attn_weights
+            attention_scores.append( attn_weights )
 
             # combine context with word
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a0, c0], training=training)
-            output.append(a)
+            out = self.dropout_lstm(a, training=training)
+            output.append(out)
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
+        output = self.dense_inter(output, training=training)
+        output = self.dropout_output(output, training=training)
         output = self.dense_out(output) # (bs, max_len, vocab_size)
 
-        return output, attention_weights
+        return output, tf.convert_to_tensor(attention_weights)
 
     def call_lc(self, data, training=False):
         """ Forward Pass | locally connected without attention """
@@ -345,15 +354,9 @@ class NIC(tf.keras.Model):
         with tf.GradientTape() as tape:
 
             # Call model on sample
-            predictionA, attn_weightsA = self.call_attention(
+            prediction, attn_weights = self.call_attention(
                     (
                         dataA
-                    ), 
-                    training=True
-            ) # (bs, max-length, vocab_size)
-            predictionB, attn_weightsB = self.call_attentionB(
-                    (
-                        dataB
                     ), 
                     training=True
             ) # (bs, max-length, vocab_size)
@@ -387,7 +390,6 @@ class NIC(tf.keras.Model):
             total_loss += cross_entropy_loss
             total_loss += l2_loss
             #total_loss += attn_loss
-            #total_loss += latent_loss
 
         trainable_variables = self.trainable_variables
         gradients = tape.gradient(total_loss, trainable_variables)

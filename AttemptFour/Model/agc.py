@@ -21,7 +21,8 @@ def adaptive_clip_grad(parameters, gradients, clip_factor=0.01, eps=1e-3):
     new_grads = []
     for (params, grads) in zip(parameters, gradients):
         is_index_slice = False
-        if type(grads) == tf.python.framework.indexed_slices.IndexedSlices:
+        if type(grads) == tf.python.framework.indexed_slices.IndexedSlices: 
+            # true if grads form from tf.keras.embedding layer
             idx = grads.indices
             dense_shape = grads.dense_shape
             grads = grads.values

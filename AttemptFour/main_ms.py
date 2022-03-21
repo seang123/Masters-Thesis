@@ -55,7 +55,7 @@ np.random.seed(config['seed'])
 tf.random.set_seed(config['seed'])
 
 # Copy Model file to run_path folder for record
-subprocess.run(["cp", "./Model/lc_NIC.py", f"{run_path}/lc_NIC.py"], shell=False, check=True)
+subprocess.run(["cp", "./Model/ms2_NIC.py", f"{run_path}/ms2_NIC.py"], shell=False, check=True)
 print(f"Model file copied to {run_path} for record")
 
 ## Parameters
@@ -64,14 +64,18 @@ vocab_size = config['top_k'] + 1
 #
 ## Load data
 #
-train_keys_one, val_keys_one = loader.get_nsd_keys('1')
+train_keys_one, val_keys_one, test_keys_one = loader.get_nsd_keys('1')
 print("subject 1")
 print("train_keys:", train_keys_one.shape)
 print("val_keys:", val_keys_one.shape)
-train_keys, val_keys = loader.get_nsd_keys('2')
+train_keys, val_keys, test_keys = loader.get_nsd_keys('2')
 print("subject 2")
 print("train_keys:", train_keys.shape)
 print("val_keys:", val_keys.shape)
+
+# TODO: get test set and remove from val keys
+#test = loader.get_test_set()
+#print(test.shape)
 
 # Keep only validation split  (rest is test data)
 #val_split = np.loadtxt("./TrainData/val_split.txt", dtype=np.int32)
@@ -96,6 +100,7 @@ print(len(train_pairs), len(train_pairs[0]))
 print(len(val_pairs), len(val_pairs[0]))
 
 tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
+#tokenizer = loader.load_tokenizer()
 
 def lr_schedule(step):
     # final lr = initial_lr * decay_rate
@@ -108,7 +113,9 @@ def lr_schedule(step):
 
 # Setup optimizer 
 if config['optimizer'] == 'Adam':
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
+    print(f"Using Adam optimizer with lr: {config['alpha']}")
+    optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'], beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
+    #optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'])
     #optimizer = tfa.optimizers.AdamW(0.001, config['alpha'], beta_1 = 0.9, beta_2 = 0.98, epsilon = 10.0e-09)
     print(f"Using optimizer: Adam")
 elif config['optimizer'] == 'SGD':
@@ -160,14 +167,12 @@ init_generator = generator.DataGenerator(
         vocab_size, 
         pre_load_betas=False,
         shuffle=False, training=True)
-temp = init_generator.__getitem__(0)[0]
-print("generator out:", temp[0].shape)
-"""
+
 build_time = time.perf_counter()
 model(init_generator.__getitem__(0)[0])
 print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
 print(model.summary())
-"""
+
 if False:
     # 1. Make one pass through the model 
     model(init_generator.__getitem__(0)[0])
@@ -242,7 +247,7 @@ lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
 _callbacks = [
         #batch_loss_writer, 
         #epoch_loss_writer, 
-        lr_scheduler,
+        #lr_scheduler,
         loss_history,
         tensorboard_callback, 
         #reduce_lr,
@@ -296,9 +301,6 @@ def dotfit():
             validation_data = val_generator,
             validation_steps = val_pairs[0].shape[0]//config['batch_size'],
             initial_epoch = start_epoch,
-            #max_queue_size= 20,
-            #workers= 10,
-            #use_multiprocessing=True,
     )
     return
 

@@ -157,12 +157,10 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_in(img_input, training=training) 
-        features = self.dropout(features, training=training)
+        features = self.dropout(self.dense_in(img_input, training=training), training=training)
     
         # Embed the caption vector
-        text = self.embedding(text_input) # (bs, max_len, embed_dim)
-        text = self.dropout_text(text, training=training)
+        text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
 
         # init state
         a = tf.convert_to_tensor(a0) # (bs, embed_dim)
@@ -182,8 +180,7 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            out = self.dropout_lstm(a, training=training)
-            output.append(out)
+            output.append(self.dropout_lstm(a, training=training))
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 

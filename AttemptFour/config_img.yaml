@@ -1,10 +1,9 @@
 ---
  # Name the current run
- run: test_linear_attention
+ run: image_attention_model
 
  info: | 
-     using proper split
-     using standard lstm
+     Show attend and tell model
      using only 485 validation samples, rest is test set
      dropout
      no attention loss

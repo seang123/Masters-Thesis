@@ -12,9 +12,33 @@ import tbparse
 from DataLoaders import load_avg_betas as loader
 from nsd_access import NSDAccess
 import subprocess
-
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu, corpus_bleu
 
+
+
+from ian_code import nsd_get_data as ngd
+
+nsd_dir = "/home/seagie/NSD3/"
+
+x = ngd.get_1000(nsd_dir)
+print("val: ", len(x))
+
+#x = loader.get_test_set()
+x = ngd.get_conditions_515(nsd_dir, 40)
+print("test:", len(x))
+
+#x = pd.DataFrame(x, columns=['nsd_key'])
+#print(x.head())
+
+#with open("./TrainData/test_nsd.csv", "w") as f:
+#    x.to_csv(f, index=False)
+
+
+
+
+sys.exit(0)
+
+# Test cross entropy loss
 
 x1 = [0.1, 0.05, 0.05, 0.2, 0.6]
 x2 = [0.01, 0.02, 0.03, 0.01, 0.93]

@@ -24,7 +24,7 @@ for i in range(0, len(physical_devices)):
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
-with open("./config.yaml", "r") as f:
+with open("./config_img.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded.")
 
@@ -37,7 +37,7 @@ if not os.path.exists(run_path):
 else:
     print(f"Training Log will be saved to: {run_path}")
 
-with open(f"{run_path}/config.yaml", "w+") as f:
+with open(f"{run_path}/config_img.yaml", "w+") as f:
     yaml.dump(config, f)
 
 
@@ -50,12 +50,10 @@ tf.random.set_seed(config['seed'])
 vocab_size = config['top_k'] + 1
 
 # Create train-val keys
-train_keys, val_keys = loader.get_nsd_keys('2')
-all_keys = np.arange(1, 73001)
-
-# Keep only val split
-#val_split = np.loadtxt("./TrainData/val_split.txt", dtype=np.int32)
-#val_keys = val_keys[val_split]
+train_keys, val_keys, test_keys = loader.get_nsd_keys('2')
+print("train_keys:", train_keys.shape)
+print("val_keys:", val_keys.shape)
+print("test_keys:", test_keys.shape)
 
 # Create train pairs
 train_pairs = np.array(loader.create_pairs(train_keys))

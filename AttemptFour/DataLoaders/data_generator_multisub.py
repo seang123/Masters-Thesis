@@ -28,7 +28,7 @@ class DataGenerator(keras.utils.Sequence):
     """ https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly """
 
     def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, pre_load_betas=False, shuffle=True, training=False):
-        print("initialising DataGenerator")
+        print("initialising DataGenerator -- multisubject")
         self.batch_size = batch_size
         self.tokenizer = tokenizer
         self.units = units

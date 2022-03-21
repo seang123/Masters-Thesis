@@ -30,6 +30,13 @@ import logging
 
 loggerA = logging.getLogger(__name__ + '.lc_model')
 
+
+"""
+
+ TRAINS A NETWORK USING 2 SEPARATE ENCODERS FOR 2 SUBJECTS
+
+"""
+
 class NIC(tf.keras.Model):
     """ Overall the same as NIC, except using Locally Connected input
     Mostly the same as normal NIC model, but with takes more patched fMRI data
@@ -53,11 +60,6 @@ class NIC(tf.keras.Model):
 
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
         self.MSE = tf.keras.losses.MeanSquaredError()
-
-        self.batchnorm_in_a = tf.keras.layers.BatchNormalization(
-                name = 'input_bn_a')
-        self.batchnorm_in_b = tf.keras.layers.BatchNormalization(
-                name = 'input_bn_b')
 
         """
         self.dense_in = fullyConnected.FullyConnected(
@@ -86,7 +88,6 @@ class NIC(tf.keras.Model):
         self.dense_in_a = layers.LocallyDense(
             groups,
             dropout = self.dropout,
-            batch_norm = self.batchnorm_in_a,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
@@ -95,7 +96,6 @@ class NIC(tf.keras.Model):
         self.dense_in_b = layers.LocallyDense(
             groups,
             dropout = self.dropout,
-            batch_norm = self.batchnorm_in_b,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
@@ -114,7 +114,8 @@ class NIC(tf.keras.Model):
         )
 
         # Text input
-        self.embedding = Embedding(vocab_size, 
+        self.embedding = Embedding(
+            vocab_size, 
             embedding_text, 
             embeddings_initializer=RandomUniform(-0.08, 0.08),
             mask_zero=True,
@@ -130,8 +131,10 @@ class NIC(tf.keras.Model):
             dropout=dropout_lstm,
             name = 'lstm'
         )
-        """
         #self.lstm.trainable=False # freeze layer 
+        """
+        print("---- using layer-norm LSTM ----")
+        loggerA.debug("Using layer-norm-lstm")
         self.lnLSTMCell = LayerNormLSTMCell(units,
                 kernel_regularizer=self.l2_lstm,
                 )
@@ -144,6 +147,7 @@ class NIC(tf.keras.Model):
         """
 
         # Intermediary output dense layer
+        #self.ln_inter = tf.keras.layers.BatchNormalization() # LayerNormalization()
         self.dense_inter = TimeDistributed(
             Dense(
                 256,
@@ -205,12 +209,10 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_in_a(img_input, training=training) 
-        features = self.dropout(features, training=training)
+        features = self.dropout(self.dense_in_a(img_input, training=training), training=training)
 
         # Embed the caption vector
-        text = self.embedding(text_input) # (bs, max_len, embed_dim)
-        text = self.dropout_text(text, training=training)
+        text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
 
         # init state
         a = tf.convert_to_tensor(a0) # (bs, units)
@@ -233,15 +235,13 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            out = self.dropout_lstm(a, training=training)
-            output.append(out)
+            output.append(self.dropout_lstm(a, training=training))
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
-        output = self.dense_inter(output, training=training)
-        output = self.dropout_output(output, training=training)
-        output = self.dense_out(output, training=training) # (bs, max_len, vocab_size)
+        #output = self.dense_out(self.dropout_output(self.ln_inter(self.dense_inter(output, training=training), training=training), training=training), training=training) # (bs, max_len, vocab_size)
+        output = self.dense_out(self.dropout_output(self.dense_inter(output, training=training), training=training), training=training) # (bs, max_len, vocab_size)
 
         return output, tf.convert_to_tensor(attention_scores)
 
@@ -252,12 +252,10 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dense_in_b(img_input, training=training) 
-        features = self.dropout(features, training=training)
+        features = self.dropout(self.dense_in_b(img_input, training=training), training=training)
 
         # Embed the caption vector
-        text = self.embedding(text_input) # (bs, max_len, embed_dim)
-        text = self.dropout_text(text, training=training)
+        text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
 
         # init state
         a = tf.convert_to_tensor(a0) # (bs, units)
@@ -280,15 +278,13 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            out = self.dropout_lstm(a, training=training)
-            output.append(out)
+            output.append(self.dropout_lstm(a, training=training))
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
-        output = self.dense_inter(output, training=training)
-        output = self.dropout_output(output, training=training)
-        output = self.dense_out(output, training=training) # (bs, max_len, vocab_size)
+        #output = self.dense_out(self.dropout_output(self.ln_inter(self.dense_inter(output, training=training), training=training), training=training), training=training) # (bs, max_len, vocab_size)
+        output = self.dense_out(self.dropout_output(self.dense_inter(output, training=training), training=training), training=training) # (bs, max_len, vocab_size)
 
         return output, tf.convert_to_tensor(attention_scores)
 
@@ -326,9 +322,7 @@ class NIC(tf.keras.Model):
                     (
                         data[0]
                     ), 
-                    training=True
-            )
-
+                    training=True)
 
             # Attention loss
             attn_across_time = tf.reduce_sum(tf.squeeze(attention_scoresA,axis=-1), axis=1)
@@ -356,9 +350,10 @@ class NIC(tf.keras.Model):
             # capture regularization losses
             l2_loss = tf.add_n(self.losses)
 
+            cce = (cross_entropy_lossA + cross_entropy_lossB) / 2.
+
             # Sum losses for backprop
-            total_loss += cross_entropy_lossA
-            total_loss += cross_entropy_lossB
+            total_loss += cce
             total_loss += l2_loss
             #total_loss += attn_loss
 
@@ -366,7 +361,8 @@ class NIC(tf.keras.Model):
         gradients = tape.gradient(total_loss, trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
 
-        return {"loss": cross_entropy_lossA, 
+        return {"loss": cce,
+                "lossA": cross_entropy_lossA,
                 "lossB": cross_entropy_lossB,
                 'L2': l2_loss, 
                 'accuracyA': accuracyA, 
@@ -452,10 +448,13 @@ class NIC(tf.keras.Model):
         cross_entropy_lossB /= int(targetB.shape[1])
         accuracyB /= int(targetB.shape[1])
 
+        cce = (cross_entropy_lossA + cross_entropy_lossB) / 2.
+
         # capture regularization losses
         l2_loss = tf.add_n(self.losses)
 
-        return {"loss": cross_entropy_lossA, 
+        return {"loss": cce,
+                "lossA": cross_entropy_lossA, 
                 "lossB": cross_entropy_lossB,
                 'L2': l2_loss, 
                 'accuracyA': accuracyA, 
