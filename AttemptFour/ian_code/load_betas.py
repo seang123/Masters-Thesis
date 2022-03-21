@@ -9,9 +9,14 @@ import os, sys
 #
 #
 
-response = pd.read_csv("/home/seagie/NSD2/nsddata/ppdata/subj02/behav/responses.tsv", sep='\t', header=0)
+subject = "subj01"
+data_dir = "/fast/seagie/data/subj_1/"
+nsd_dir = "/home/seagie/NSD3/"
+n_sessions = 40
+targetspace = 'fsaverage'
 
-stim_info_merged = pd.read_csv("/home/seagie/NSD2/nsddata/experiments/nsd/nsd_stim_info_merged.csv")
+response = pd.read_csv(f"/home/seagie/NSD3/nsddata/ppdata/{subject}/behav/responses.tsv", sep='\t', header=0)
+stim_info_merged = pd.read_csv("/home/seagie/NSD3/nsddata/experiments/nsd/nsd_stim_info_merged.csv")
 
 #print(response.columns)
 #print(response.shape)
@@ -23,13 +28,6 @@ stim_info_merged = pd.read_csv("/home/seagie/NSD2/nsddata/experiments/nsd/nsd_st
 
 #print(stim_info_merged.shared1000.value_counts())
 #print(stim_info_merged.subject2.value_counts())
-
-
-data_dir = "/fast/seagie/data/subj_2/"
-nsd_dir = "/home/seagie/NSD2/"
-subject = "subj02"
-n_sessions = 40
-targetspace = 'fsaverage'
 
 conditions = ngd.get_conditions(nsd_dir, subject, n_sessions)
 print("conditions:", len(conditions), conditions[0].shape)
@@ -61,7 +59,7 @@ for k, v in enumerate(sample):
 # Save a csv file with the data of which trials the subject saw and which ones where unq and which shared
 df_dict = {'nsd_key': sample, 'is_shared': shared_idx}
 df = pd.DataFrame(data=df_dict)
-#df.to_csv('../TrainData/subj02_conditions.csv', index=False)
+df.to_csv(f'./TrainData/{subject}_conditions.csv', index=False)
 
 #betas_mean_file_conditions = os.path.join(data_dir, f"{subject}_betas_{targetspace}_averaged_unq_sample.txt")
 #with open(betas_mean_file_conditions, "w") as f:
@@ -81,6 +79,10 @@ print(f"Betas mean: {betas_mean.shape}")
 print(f"concatenating betas for {subject}")
 #betas_mean = np.concatenate(betas_mean, axis=1).astype(np.float32)
 print(f"betas_mean concat: {betas_mean.shape}")
+
+## Replace Nan/Inf with 0/very large val
+np.nan_to_num(betas_mean, copy=False)
+print(f"NaN values replaced in: betas_mean")
 
 print(f"averaging betas for {subject}")
 betas_mean = ngd.average_over_conditions(
@@ -106,7 +108,7 @@ else:
     betas_mean = np.transpose(betas_mean, axes = [1,0])
     print("betas_mean new shape:", betas_mean.shape)
 
-    loc = f"{data_dir}/betas_averaged_no_zscore/"
+    loc = f"{data_dir}/betas_averaged/"
     if not os.path.exists(loc):
         os.makedirs(loc)
     for k, v in enumerate(sample):

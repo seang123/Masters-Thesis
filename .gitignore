@@ -184,6 +184,7 @@ figures/
 /DeepRNN/
 
 *.png
+/AttemptFour/glasser_viz/
 
 /AttemptFour/Logs/
 /AttemptFour/tb_logs/
@@ -192,4 +193,7 @@ figures/
 /AttemptFour/best_val_loss/
 /AttemptFour/GUSE_model/
 /AttemptFour/Visualization/
+/AttemptFour/pca/
+/AttemptFour/chakin_embeddings/
+/AttemptFour/Eval/
 

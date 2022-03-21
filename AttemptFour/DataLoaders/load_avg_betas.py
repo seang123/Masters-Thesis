@@ -6,6 +6,7 @@ from nsd_access import NSDAccess
 import pandas as pd
 import my_utils as uu
 import time
+import json
 import re
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
@@ -14,10 +15,10 @@ from ian_code import nsd_get_data as ngd
 import yaml
 import nibabel as nb
 from concurrent.futures import ThreadPoolExecutor
-#from data_generator_guse import DataGenerator
 
+print("------------load_avg_betas.py-------------")
 
-np.random.seed(42)
+#np.random.seed(42)
 
 data_dir = '/huge/seagie/data_meaned/'
 nsd_dir = '/home/seagie/NSD2/'
@@ -25,16 +26,17 @@ subject = "subj02"
 n_sessions = 40
 targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
-captions_path = "/fast/seagie/data/subj_2/captions/"
+captions_path = "/fast/seagie/data/captions/"
 betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
 USE_ENTIRE_CORTEX = True
+SEPARATE_HEMISPHERES = True
 
 ## ====== Glasser ======
 GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
 GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
 VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
 
-glasser_lh = nb.load(GLASSER_LH).get_data()
+glasser_lh = nb.load(GLASSER_LH).get_data() # 163_842 values in the range [0, 180]
 glasser_rh = nb.load(GLASSER_RH).get_data()
 
 glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
@@ -48,34 +50,92 @@ visual_parcel_list = list(visual_parcels.values.flatten())
 
 if USE_ENTIRE_CORTEX == False:
     ## If using only visual cortex
+    print("-- visual area glasser regions --")
     groups = []
-    glasser_indices = np.array(range(len(glasser)))
+    glasser_indices = np.array(range(len(glasser))) # [0 to 163841]
     for i in visual_parcel_list:
         group = glasser_indices[glasser==i]
         groups.append(group)
+elif SEPARATE_HEMISPHERES: 
+    print("-- separate hemisphere glasser regions --")
+    ## Separate Glasser regions into hemisphers - 360 regions
+    glasser_lh = glasser_lh.flatten()
+    glasser_rh = glasser_rh.flatten()
+    # Right
+    glasser_indices_rh = np.array(range(len(glasser_rh))) # [0 to 163_841]
+    groups_rh = []
+    for i in set(glasser_rh):
+        groups_rh.append(glasser_indices_rh[glasser_rh == i])
+    # Left 
+    glasser_indices_lh = np.array(range(len(glasser_lh))) # [0 to 163_841]
+    groups_lh = []
+    for i in set(glasser_lh):
+        groups_lh.append(glasser_indices_lh[glasser_lh == i])
+    print("excluding group 0")
+    print("groups_lh:", len(groups_lh[1:]))
+    print("groups_rh:", len(groups_rh[1:]))
+    print("Avg. group size lh:     ", np.mean([len(g) for g in groups_lh[1:]]))
+    print("Avg. group size rh:     ", np.mean([len(g) for g in groups_rh[1:]]))
+    print("max group size lh | rh: ", np.max([len(g) for g in groups_lh[1:]]), np.max([len(g) for g in groups_rh[1:]]))
+    print("min group size lh | rh: ", np.min([len(g) for g in groups_lh[1:]]), np.min([len(g) for g in groups_rh[1:]]))
+    groups = groups_lh[1:] + groups_rh[1:]
 else:
     ## If using entire cortex
+    print("-- full cortex glasser regions --")
     groups = []
     glasser_indices = np.array(range(len(glasser)))
     for i in set(glasser):
         group = glasser_indices[glasser == i]
         groups.append(group)
+    groups = groups[1:]
+    print("sum of groups sizes:", sum([len(g) for g in groups]))
+    print("Avg. group size:    ", np.mean([len(g) for g in groups]))
+    print("nr of groups        ", len([len(g) for g in groups]))
 
-print("sum of groups sizes:", sum([len(g) for g in groups]))
-print("Avg. group size:    ", np.mean([len(g) for g in groups]))
-print("nr of groups        ", len([len(g) for g in groups]))
+def get_groups(out_dim, separate_hemi=False):
+    return groups, [out_dim for i in range(0,len(groups))]
+        #return groups[1:], [len(g)//50 for g in groups[1:]]
+        #return groups_lh[1:], groups_rh[1:], [out_dim for i in range(1, len(groups_lh))], [out_dim for i in range(1, len(groups_rh))]
 
-def get_groups(out_dim):
-    return groups[1:], [out_dim for i in range(1,len(groups))]
-    #return groups[1:], [len(g)//50 for g in groups[1:]]
+print("------------load_avg_betas.py-------------")
 ## =====================
 
-def build_tokenizer(captions_path, top_k = 5000):
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        out = func(*args, **kwargs)
+        print(f"> {func.__name__} - {(time.perf_counter() - start):.3f} sec")
+        return out
+    return wrapper
+
+
+def remove_stop_words(list_of_words: list):
+    stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"]
+    stop_words = []
+    with open(f"stop_words.txt", 'r') as f:
+        cont = f.read()
+        for i, line in enumerate(cont):
+            stop_words.append(str(line.strip()))
+    stop_words = set(stop_words)
+    return [i for i in list_of_words if i not in stop_words]
+
+@timeit
+def load_tokenizer():
+    print("Loading tokenizer from disk: fit on all 73k NSD images with vocab size of 5000")
+    return tf.keras.preprocessing.text.tokenizer_from_json(json.load(open("./TrainData/tokenizer_73k.json", "r")))
+
+
+@timeit
+def build_tokenizer(nsd_keys: list, top_k = 5000):
     """
+    Build tokenizer from captions
+
+    Ignore captions that aren't in the keys list
+
     Parameters
     ----------
-        captions_path : str
-            path to folder with captions
+        nsd_keys : list
+            a list of NSD keys to load
         top_k : int
             vocab size
 
@@ -86,25 +146,30 @@ def build_tokenizer(captions_path, top_k = 5000):
     """
 
     all_captions = []
+    avg_caption_length = 0
+
+    keys = set([i for i in nsd_keys])
 
     num_files = 0
     for entry in os.scandir(captions_path):
         num_files += 1
-        with open(entry.path, "r") as f:
-            content = f.read()
-            for i in content.splitlines():
-                cap = i.replace(".", " ")
-                cap = cap.replace(",", " ")
-                cap = cap.strip()
-                cap = cap.split(" ")
-                cap = [i.lower() for i in cap if i != '']
-                cap = ['<start>'] + cap + ['<end>']
-                cap = " ".join(cap)
+        kid = re.search('(?<=KID)[0-9]+', entry.name)[0]
+        if int(kid) in keys:
+            with open(entry.path, "r") as f:
+                content = f.read()
+                for i in content.splitlines():
+                    cap = i.replace(".", " ").replace(",", " ").strip().split(" ")
+                    cap = [i.lower() for i in cap if i != '']
+                    #cap = remove_stop_words(cap)
+                    cap = ['<start>'] + cap + ['<end>']
+                    avg_caption_length += len(cap)
+                    cap = " ".join(cap)
 
-                all_captions.append(cap)
+                    all_captions.append(cap)
                 
     print(f"num_files scanned: {num_files}")
     print(f"num captions read: {len(all_captions)}")
+    print(f"avg caption length: {avg_caption_length/len(all_captions)}")
 
     tokenizer = tf.keras.preprocessing.text.Tokenizer(num_words = top_k, oov_token = '<unk>', filters = '!"#$%&()*+.,-/:;=?@[\]^_`{|}~\t\n ')
     tokenizer.fit_on_texts(all_captions)
@@ -113,227 +178,95 @@ def build_tokenizer(captions_path, top_k = 5000):
 
     return tokenizer, all_captions
 
-def get_nsd_keys(nsd_dir: str, subject: str = 'subj02', n_sessions=40) -> (list, list):
+def get_test_set():
+    # 515 keys that all 8 subjects saw are our test set
+    df = pd.read_csv(f'./TrainData/test_conditions.csv')
+    return df['nsd_key'].values
+
+def get_nsd_keys(subj: str = '2') -> (list, list):
     """ Get the NSD keys for a subject 
 
+    Parameter
+    ---------
+        subj : int | str
+            the subject id
     Returns
     -------
-        sample : list
-            unique nsd keys shown
-        conditions : list
-            all nsd keys show ( sample keys repeated 3 times )
+        unq : ndarray 
+            unique nsd keys
+        shr : ndarray
+            shared nsd keys
     """
 
-    df = pd.read_csv('./TrainData/subj02_conditions.csv')
+    df = pd.read_csv(f'./TrainData/subj0{subj}_conditions.csv')
+    df_test = pd.read_csv(f'./TrainData/test_conditions.csv')
 
     unq = df['nsd_key'].loc[df['is_shared']==0]
     shrd = df['nsd_key'].loc[df['is_shared']==1]
+    test = df_test['nsd_key'].values
     
     assert len(unq) == 9000, "incorrect amount of unq keys"
     assert len(shrd) == 1000, "incorrect amount of shrd keys"
+    assert len(test) == 515, f"incorrect amount of test keys: {len(test)}"
 
-    #return unq.values - 1, shrd.values - 1
-    return unq.values, shrd.values
+    # remove test keys from val set
+    shrd = shrd.values
+    shrd = np.array([i for i in shrd if i not in test])
+
+    return unq.values, shrd, test
+        
 
 def get_shr_nsd_keys(nsd_dir: str) -> list:
     """ Get the shared NSD keys """
     return ngd.get_1000(nsd_dir)
 
-def create_pairs(keys: list, captions_path: str):
+@timeit
+def create_pairs(keys: list, subj='2', single=False):
     """ returns NSD_key - caption pairs
 
     Parameters
     ----------
         nsd_keys : list
             list of unique nsd keys
-        captions_path : str
-            path to the caption files
+        subj: int or str
+            an id of the current subject - should match the passed keys 
+        single: bool
+            if True load only the first caption
     Returns
     -------
         pairs : list
-            [NSD key, caption, caption id, key_idx]
+            [NSD key, caption, caption id, count, subject id]
     """
 
     pairs = []
     for count, key in enumerate(keys):
-        with open(f"{captions_path}SUB2_KID{key}.txt", "r") as f:
+        with open(f"{captions_path}/KID{key}.txt", "r") as f:
             content = f.read()
             cid = 0
             for line in content.splitlines():
-                cap = line.replace(".", " ")
-                cap = cap.replace(",", " ")
-                cap = cap.strip()
-                cap = cap.split(" ")
+                cap = line.replace(".", " ").replace(",", " ").strip().split(" ")
                 cap = [i.lower() for i in cap]
+                #cap = remove_stop_words(cap)
                 cap = ['<start>'] + cap + ['<end>']
                 cap = " ".join(cap)
-                pairs.append( (key, cap, cid, count) )
+                pairs.append( (key, cap, cid, count, subj) )
                 cid += 1
+                if single:
+                    break
 
     return pairs
 
-def add_tokenized_cap_to_pair(pairs: list, tokenizer, max_len: int) -> list:
+def train_val_pairs_from_all(all_pairs):
 
-    new_pairs = []
-    for pair in pairs:
-        cap_seqs = tokenizer.texts_to_sequences([pair[1]]) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = len(cap.split(" ")), truncating = 'post', padding = 'post')
-        new_pairs.append( (*pair, cap_vector[0]) )
-
-    return new_pairs
-
-
-def apply_mask(x: np.array, mask: np.array):
-    """ Apply a mask to a set of betas
-        Parameters
-        ----------
-            x : np.array
-                betas (~320k, )
-            mask : np.array
-                the mask indicies
-        Returns
-        -------
-            np.array
-                array with some areas masked out
-    """
-    return x[mask == 1]
-
-def batch_generator(
-            pairs: list,
-            betas_path: str,
-            captions_path: str,
-            tokenizer,
-            batch_size: int = 32,
-            max_length: int = 10,
-            vocab_size: int = 5000,
-            units: int = 512,
-            training: bool = True
-        ): 
-
-    with open('/home/seagie/NSD/Code/Masters-Thesis/ThinkAndTell/masks/visual_mask_lh.npy', 'rb') as f, open('/home/seagie/NSD/Code/Masters-Thesis/ThinkAndTell/masks/visual_mask_rh.npy', 'rb') as g:
-        visual_mask_lh = np.load(f)
-        visual_mask_rh = np.load(g)
-#print(" > visual region masks loaded from file") 
-
-    visual_mask = np.vstack([visual_mask_lh, visual_mask_rh]).squeeze()
-    DIM = int(np.sum(visual_mask))
-
-
-    pairs = np.array(pairs)
-    N = pairs.shape[0]
-
-    #while True:
-    for i in range(0, N, batch_size):
-
-        # Load batch
-        batch = pairs[i:i+batch_size,:]
-        nsd_key, cap = batch[:, 0], batch[:,1]
-
-        betas_data = np.zeros((nsd_key.shape[0], 62756), dtype=np.float32)
-        
-        # Load betas + apply mask
-        for i in range(0, nsd_key.shape[0]):
-            key = nsd_key[i]
-            with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-                betas_data[i,:] = apply_mask(np.load(f), visual_mask)
-
-        # Tokenize captions
-        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
-
-        # Create target
-        target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
-        target[:,:-1] = cap_vector[:,1:]
-        target = to_categorical(target,vocab_size)
-        target = target.astype(np.int32)
-
-        # Init LSTM
-        init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
-
-
-        if training:
-           yield ((betas_data, cap_vector, init_state, init_state), target)
-        else:
-           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
-
-
-def apply_lc_mask(betas:np.array, groups:list):
-    """ Apply multiple masks to the betas
-
-    A (327684,) array of betas gets split into multiple masked regions
-    using the mask list
-
-    Parameters
-    ----------
-        betas : ndarray
-            betas array (327684,)
-        groups : list
-            a list of indices corresponding to different regions
-
-    Returns
-    -------
-        list 
-            different masked beta regions
-            [(N0,), (N1,) ...., (N40,)]
-    """
+    train_pairs = []
+    val_pairs = []
+    for i in range(len(all_pairs)):
+        train_pairs.append(all_pairs[i][0])
+        val_pairs.append(all_pairs[i][1])
+    train_pairs = [i for sublist in train_pairs for i in sublist]
+    val_pairs = [i for sublist in val_pairs for i in sublist]
     
-    beta_regions = []
-    for i in groups:
-        region = betas[i]
-        beta_regions.append( region )
-
-    print("beta_regions:", len(beta_regions))
-    print("beta_regions:", [g.shape for g in beta_regions])
-
-    return beta_regions
-
-def lc_batch_generator(
-            pairs: list,
-            betas_path: str,
-            captions_path: str,
-            tokenizer,
-            batch_size: int = 32,
-            max_length: int = 10,
-            vocab_size: int = 5000,
-            units: int = 512,
-            training: bool = True
-        ): 
-
-    pairs = np.array(pairs)
-    N = pairs.shape[0]
-
-#    while True:
-    for i in range(0, N, batch_size):
-
-        # Load batch
-        batch = pairs[i:i+batch_size,:]
-        nsd_key, cap = batch[:, 0], batch[:,1]
-
-        betas_data = np.zeros((nsd_key.shape[0], 327684), dtype=np.float32)
-
-        # Load betas + apply mask
-        for i in range(0, nsd_key.shape[0]):
-            key = nsd_key[i]
-            with open(f"{betas_path}/betas_SUB2_KID{key}.npy", "rb") as f:
-                betas_data[i, :] = np.load(f)
-
-        # Tokenize captions
-        cap_seqs = tokenizer.texts_to_sequences(cap) # int32
-        cap_vector = tf.keras.preprocessing.sequence.pad_sequences(cap_seqs, maxlen = max_length, truncating = 'post', padding = 'post')
-
-        # Create target
-        target = np.zeros_like(cap_vector, dtype=cap_vector.dtype)
-        target[:,:-1] = cap_vector[:,1:]
-        target = to_categorical(target, vocab_size)
-
-        # Init LSTM
-        init_state = np.zeros([cap_vector.shape[0], units], dtype=np.float32)
-
-        if training:
-            yield ((betas_data, cap_vector, init_state, init_state), target)
-        else:
-           yield ((betas_data, cap_vector, init_state, init_state), target, nsd_key)
-
+    return train_pairs, val_pairs
 
 def main():
 
@@ -341,44 +274,38 @@ def main():
         config = yaml.safe_load(f)
         print(f"Config file loaded.")
 
+    train_keys, val_keys = get_nsd_keys('2') # (10_000,)
+    print("len(set(nsd_keys))", len(list(set(train_keys))))
+    print("len(set(shr_nsd_keys))", len(list(set(val_keys))))
+
+    #train_keys = list(range(1, 73001))[:70000]
+    #val_keys   = list(range(1, 73001))[70000:]
+
+    train_pairs = np.array(create_pairs(train_keys))
+    val_pairs = np.array(create_pairs(val_keys))
+    print("train_pairs:", train_pairs.shape)
+    print("val_pairs:  ", val_pairs.shape)
+
     start = time.time()
-    tokenizer, _ = build_tokenizer(captions_path, config['top_k'])
+    tokenizer, _ = build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
     print(f"Tokenizer built in {(time.time() - start):.2f} seconds")
-
-    nsd_keys, shr_nsd_keys = get_nsd_keys(nsd_dir) # (10_000,)
-    #shr_nsd_keys = get_shr_nsd_keys(nsd_dir) # (1000,)
-
-    print("len(set(nsd_keys))", len(list(set(nsd_keys))))
-    print("len(set(shr_nsd_keys))", len(list(set(shr_nsd_keys))))
-
-    train_keys = [i for i in nsd_keys if i not in shr_nsd_keys]
-    val_keys = shr_nsd_keys
-
-    print("train_keys:",len(train_keys))
-    print("val_keys:  ",len(val_keys))
-
-    train_pairs = create_pairs(train_keys, captions_path)
-    val_pairs = create_pairs(val_keys, captions_path)
-
-    print("train_pairs:", len(train_pairs))
-    print("val_pairs:  ", len(val_pairs))
-
-    #lc_batch_generator(val_pairs, betas_path, captions_path, tokenizer, config['batch_size'], config['max_length'], config['top_k'], config['units'])
+    
 
     #start = time.time()
-    #train_pairs = add_tokenized_cap_to_pair(train_pairs, tokenizer, max_len = 10)
     #print(f"Time to tokenize captions: {(time.time() - start):.2f}")
 
-    generator = DataGenerator(train_pairs,
-            batch_size = 32,
+    from data_generator_guse import DataGenerator
+    generator = DataGenerator(
+            train_pairs,
+            batch_size = 64,
             tokenizer = tokenizer,
             units = 512,
-            max_len = 10,
+            max_len = 13,
             vocab_size = 5001,
-            nsd_keys = nsd_keys,
-            pre_load_betas=False,
+            pre_load_betas=True,
             shuffle=True,
-            training=True)
+            training=True
+    )
 
     x = generator[0]
     print(x[0][0].shape)
@@ -388,6 +315,6 @@ def main():
 if __name__ == '__main__':
     start = time.time()
     main()
-    print(f"Time: {(time.time() - start):.2f}")
+    print(f"Total time elapsed: {(time.time() - start):.2f}")
 
 

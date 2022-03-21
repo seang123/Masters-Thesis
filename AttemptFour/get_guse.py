@@ -7,9 +7,9 @@ import time
 
 GUSE_model_path = './GUSE_model'
 nsd_keys = './TrainData/subj02_conditions.csv'
-captions_path = '/fast/seagie/data/subj_2/captions/'
+captions_path = '/fast/seagie/data/captions/'
 
-gpu_to_use = 2
+gpu_to_use = 1
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 for i in range(0, len(physical_devices)):
@@ -33,10 +33,13 @@ def get_captions(keys: list):
     all_captions = []
     for i, key in enumerate(keys):
         captions = []
-        with open(f"{captions_path}/SUB2_KID{key}.txt", "r") as f:
+        with open(f"{captions_path}/KID{key}.txt", "r") as f:
             content = f.read()
             for line in content.splitlines():
-                captions.append(line)
+                cap = line.replace(".", " ").replace(",", " ").strip().split(" ")
+                cap = [i.lower() for i in cap if i != '']
+                cap = " ".join(cap)
+                captions.append(cap)
 
         assert len(captions) == 5, f"{len(captions)}\n{key}"
         all_captions.append( captions )
@@ -96,6 +99,20 @@ def create_average(keys):
         print(f"batch: {i}", end="\r")
             
 
+def embed_caption(captions: list) -> np.array:
+    """ Takes a list holding the inference caption and returns the GUSE embedding 
+    Parameters:
+    -----------
+        captions : list(str)
+            list of list of captions strings [[stringA1, stringA2], [stringB1, ...]]
+    Returns:
+    --------
+        guse : ndarray
+            GUSE embedding of captions
+    """
+    GUSE_model = get_google_encoder(GUSE_model_path)
+    guse = np.array([np.array(get_GUSE_embeddings(GUSE_model_path, x, GUSE_model)) for x in [captions]])
+    return guse
 
 if __name__ == '__main__':
     """
@@ -106,11 +123,20 @@ if __name__ == '__main__':
 
     df = pd.read_csv(f"{nsd_keys}")
     nsd_keys = list( df['nsd_key'].values )
+    #nsd_keys = [6, 37]
 
     sample_captions = get_captions(nsd_keys)  
     print("sample_captions", len(sample_captions))
+    print(sample_captions[0])
+    raise
 
-    create_single(nsd_keys)
+    GUSE_model = get_google_encoder(GUSE_model_path)
+    guse = np.array([np.array(get_GUSE_embeddings(GUSE_model_path, x, GUSE_model)) for x in sample_captions])
+    print(guse.shape)
+    
+    with open("/fast/seagie/data/subj_2/subj_2_guse_pre_processed.npy", "wb") as f:
+        np.save(f, guse)
+
     raise 
 
     # Average the guse

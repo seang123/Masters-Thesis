@@ -2,8 +2,6 @@ import tensorflow as tf
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt
-import sys
-sys.path.append("/home/seagie/NSD/Code/Masters-Thesis/AttemptFour/Model")
 from tensorflow.keras.layers import (Dense,
                             LSTM,
                             BatchNormalization,
@@ -20,12 +18,13 @@ from tensorflow.keras.initializers import RandomUniform, GlorotNormal
 from tensorflow.keras.regularizers import L2
 from tensorflow_addons import seq2seq
 from tensorflow_addons.rnn import LayerNormLSTMCell
-import layers
-import deep_layers
-import attention
-import localDense
-import fullyConnected
-import agc
+from . import layers
+from . import deep_layers
+from . import attention
+from . import localDense
+from . import fullyConnected
+from . import agc
+import sys
 import numpy as np
 from collections import defaultdict
 import logging
@@ -56,6 +55,8 @@ class NIC(tf.keras.Model):
         self.expand = Lambda(lambda x : tf.expand_dims(x, axis=1))
         self.MSE = tf.keras.losses.MeanSquaredError()
 
+        self.batchnorm_in = tf.keras.layers.BatchNormalization(name = 'input_bn')
+
         """
         self.dense_in = fullyConnected.FullyConnected(
                 embed_dim = embedding_features,
@@ -83,6 +84,7 @@ class NIC(tf.keras.Model):
         self.dense_in = layers.LocallyDense(
             groups,
             dropout = self.dropout,
+            batch_norm = self.batchnorm_in,
             activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_in,
@@ -94,45 +96,32 @@ class NIC(tf.keras.Model):
         self.attention = attention.Attention(
             units=attn_units,
             dropout=self.dropout_attn,
-            activation=None, # LeakyReLU(0.2),
+            activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
         )
 
-        # Text input
-        self.embedding = Embedding(
-            vocab_size, 
-            embedding_text, 
-            embeddings_initializer=RandomUniform(-0.08, 0.08),
-            mask_zero=True,
-            #activity_regularizer=self.l2_in,
-            name = 'emb_text',
-        )
-
         # LSTM layer
-        use_layer_norm = True
-        if not use_layer_norm:
-            print("-- Using standard LSTM --")
-            self.lstm = LSTM(units,
-                return_sequences=True,
-                return_state=True,
+        self.lstm = LSTM(units,
+            return_sequences=True,
+            return_state=True,
+            kernel_regularizer=self.l2_lstm,
+            dropout=dropout_lstm,
+            name = 'lstm'
+        )
+        """
+        #self.lstm.trainable=False # freeze layer 
+        self.lnLSTMCell = LayerNormLSTMCell(units,
                 kernel_regularizer=self.l2_lstm,
-                dropout=dropout_lstm,
-                name = 'lstm'
-            )
-            #self.lstm.trainable=False # freeze layer 
-        else:
-            print("Using layer-norm LSTM")
-            self.lnLSTMCell = LayerNormLSTMCell(units,
-                    kernel_regularizer=self.l2_lstm,
-                    )
-            self.lstm = tf.keras.layers.RNN(
-                    self.lnLSTMCell, 
-                    return_sequences=True, 
-                    return_state=True,
-                    name='lstm'
-            )
+                )
+        self.lstm = tf.keras.layers.RNN(
+                self.lnLSTMCell, 
+                return_sequences=True, 
+                return_state=True,
+                name='lstm'
+        )
+        """
 
         # Intermediary output dense layer
         self.dense_inter = TimeDistributed(
@@ -221,15 +210,17 @@ class NIC(tf.keras.Model):
 
     def call_attention(self, data, training=False):
         """ Forward pass | Attention model """
-        img_input, text_input, a0, c0 = data
+        img_input, text, a0, c0 = data
 
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dropout(self.dense_in(img_input, training=training), training=training)
+        features = self.dense_in(img_input, training=training) 
+        features = self.dropout(features, training=training)
 
         # Embed the caption vector
-        text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
+        #text = self.embedding(text_input) # (bs, max_len, embed_dim)
+        text = self.dropout_text(text, training=training)
 
         # init state
         a = tf.convert_to_tensor(a0) # (bs, units)
@@ -252,12 +243,15 @@ class NIC(tf.keras.Model):
             sample = tf.concat([context, tf.expand_dims(text[:, i, :], axis=1)], axis=-1) # (bs, 1, embed_features + embed_text)
 
             _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-            output.append(self.dropout_lstm(a, training=training))
+            out = self.dropout_lstm(a, training=training)
+            output.append(out)
 
         output = tf.stack(output, axis=1) # (bs, max_len, embed_dim)
 
         # Convert to vocab
-        output = self.dense_out(self.dropout_output(self.dense_inter(output, training=training), training=training), training=training) # (bs, max_len, vocab_size)
+        output = self.dense_inter(output, training=training)
+        output = self.dropout_output(output, training=training)
+        output = self.dense_out(output, training=training) # (bs, max_len, vocab_size)
 
         return output, tf.convert_to_tensor(attention_scores)
 
@@ -347,6 +341,7 @@ class NIC(tf.keras.Model):
         attn_loss = 0
 
         #print("tf.executing_eagerly() ==", tf.executing_eagerly() )
+
         with tf.GradientTape() as tape:
 
             # Call model on sample

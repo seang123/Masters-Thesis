@@ -2,7 +2,7 @@ import subprocess as sp
 import re
 import time
 import datetime
-from Tensorgram import tensorbot as tb
+#from Tensorgram import tensorbot as tb
 
 def get_smi_out():
     x = sp.run(["nvidia-smi"], capture_output=True)
@@ -145,11 +145,10 @@ if __name__ == '__main__':
 
     mem = get_memory_usage()
 
-    print(min(mem))
-    print(mem.index(min(mem)))
+    print(f"Min memory usage:\n\tgpu: {mem.index(min(mem))} - {min(mem):,}MiB")
 
     util = get_volatile_util()
 
     print(list(zip(mem, util)))
 
-    monitor(10000)
+    #monitor(10000)

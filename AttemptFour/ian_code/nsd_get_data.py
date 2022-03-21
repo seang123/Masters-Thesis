@@ -370,10 +370,10 @@ def get_betas_mem_eff(nsd_dir, sub, n_sessions, mask=None, targetspace='func1pt8
 
                     betas.append(masked_betas)
                 else:
-                    #x = (zscore(
-                    #        all_verts,
-                    #        axis=conaxis)).astype(np.float32)
-                    betas[:,750*ses:750+750*ses] = all_verts # x
+                    x = (zscore(
+                            all_verts,
+                            axis=conaxis)).astype(np.float32)
+                    betas[:,750*ses:750+750*ses] = x
 
                     #betas.append(
                     #    (zscore(

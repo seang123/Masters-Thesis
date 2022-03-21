@@ -1,11 +1,16 @@
 import yaml
+import logging
 import time
 import os, sys
 import tensorflow as tf
 from tensorflow.keras.utils import Progbar
 import numpy as np
-from Model import NIC
-from DataLoaders import load_images as loader
+
+from Model import img_NIC
+#from DataLoaders import load_images as loader
+from DataLoaders import load_avg_betas as loader
+from DataLoaders import data_generator_image as generator
+
 from Callbacks import BatchLoss, EpochLoss, WarmupScheduler, Predict
 from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard, EarlyStopping, ReduceLROnPlateau
 from datetime import datetime
@@ -14,20 +19,17 @@ gpu_to_use = 1
 
 # Allow memory growth on GPU devices 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
-#for i in range(0, len(physical_devices)):
-#    tf.config.experimental.set_memory_growth(physical_devices[i], True)
+for i in range(0, len(physical_devices)):
+    tf.config.experimental.set_memory_growth(physical_devices[i], True)
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
-with open("./config.yaml", "r") as f:
+with open("./config_img.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded.")
 
 run_name = config['run']
 run_path = os.path.join(config['log'], run_name)
-
-## Parameters
-vocab_size = config['top_k'] + 1
 
 if not os.path.exists(run_path):
     os.makedirs(run_path)
@@ -35,58 +37,78 @@ if not os.path.exists(run_path):
 else:
     print(f"Training Log will be saved to: {run_path}")
 
-with open(f"{run_path}/config.yaml", "w+") as f:
+with open(f"{run_path}/config_img.yaml", "w+") as f:
     yaml.dump(config, f)
 
 
-# Load data
-data_train, train_vector, data_val, val_vector, tokenizer, train_keys, val_keys = loader.load_data_img(top_k = config['top_k'], _max_length = config['max_length'], train_test_split = 0.9)
+logging.basicConfig(filename=f'{run_path}/log.log', filemode='w', level=logging.DEBUG)
 
-"""
-data_train = data_train[0:10,:]
-#data_train = np.expand_dims(data_train, axis=0)
-train_vector = train_vector[0:10,:]
-#train_vector = np.expand_dims(train_vector, axis=0)
-train_keys = train_keys[:10]
+np.random.seed(config['seed'])
+tf.random.set_seed(config['seed'])
 
-data_val = data_val[0:10,:]
-#data_val = np.expand_dims(data_val, axis=0)
-val_vector = val_vector[0:10,:]
-#val_vector = np.expand_dims(val_vector, axis=0)
-val_keys = val_keys[:10]
-"""
+## Parameters
+vocab_size = config['top_k'] + 1
+
+# Create train-val keys
+train_keys, val_keys, test_keys = loader.get_nsd_keys('2')
+print("train_keys:", train_keys.shape)
+print("val_keys:", val_keys.shape)
+print("test_keys:", test_keys.shape)
+
+# Create train pairs
+train_pairs = np.array(loader.create_pairs(train_keys))
+val_pairs = np.array(loader.create_pairs(val_keys))
+print("train_pairs:", train_pairs.shape)
+print("val_pairs:  ", val_pairs.shape)
+print("Captions created")
+
+#tokenizer, _ = loader.build_tokenizer(all_keys, config['top_k'])
+tokenizer = loader.load_tokenizer()
+print("Tokenizer built")
 
 
 def create_generator(data, cap, keys, training):
     return loader.data_generator(data, cap, keys, config['units'], vocab_size, config['batch_size'], training=training)
 
-print("data loaded successfully")
+print("Caption data successfully loaded")
 
-
+def lr_schedule(step):
+    decay_steps = 10
+    decay_rate = 0.01 
+    inital_lr = 0.01
+    final_lr = 0.0001
+    #return max(inital_lr * decay_rate ** (step / decay_steps), final_lr)
+    return 0.0001
 
 # Setup optimizer 
-optimizer = tf.keras.optimizers.Adam(learning_rate=config['alpha'])
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.0001, beta_1 = 0.9, beta_2=0.98, epsilon=10.0e-9, clipnorm=config['clipnorm'])
 loss_object = tf.keras.losses.CategoricalCrossentropy(
         from_logits=False,
         reduction='none'
 )
 
 # Setup Model
-model = NIC.NIC(
-        config['input']['mscoco'],
+model = img_NIC.NIC(
+        config['group_size'],
         config['units'], 
-        config['embedding_dim'], 
+        config['embedding_features'], 
+        config['embedding_text'],
+        config['attn_units'],
         vocab_size,
         config['max_length'],
         config['dropout_input'],
         config['dropout_features'],
+        config['dropout_text'],
+        config['dropout_attn'],
         config['dropout_lstm'],
+        config['dropout_out'],
         config['input_reg'],
+        config['attn_reg'],
         config['lstm_reg'],
         config['output_reg']
         )
 model.compile(optimizer, loss_object, run_eagerly=True)
-#print(model.summary())
+
 
 # Setup Checkpoint handler
 """
@@ -112,25 +134,11 @@ else:
 start_epoch = 0
 
 
-"""
-model.fit(train_dataset,
-        epochs = config['epochs'],
-        verbose = 1,
-        callbacks = [],
-        validation_data = val_generator,
-        initial_epoch = start_epoch,
-        steps_per_epoch = len(train_pairs)/config['batch_size'],
-        validation_steps = len(val_pairs)/config['batch_size'],
-)
-"""
-
-batch_loss_writer = BatchLoss.BatchLoss(f"{run_path}/batch_training_log.csv", f"{run_path}")
-epoch_loss_writer = EpochLoss.EpochLoss(f"{run_path}/training_log.csv")
 
 checkpoint_path = f"{run_path}/model/" 
 if not os.path.exists(checkpoint_path):
     os.makedirs(checkpoint_path)
-checkpoint_path_best = checkpoint_path + "model-ep{epoch:03d}.h5"
+checkpoint_path_best = f"{checkpoint_path}" + "model-ep{epoch:03d}.h5"
 checkpoint_best = ModelCheckpoint(checkpoint_path_best,
         monitor='val_loss',
         verbose=1,
@@ -139,7 +147,7 @@ checkpoint_best = ModelCheckpoint(checkpoint_path_best,
         mode='min',
         period=1
         )
-checkpoint_path_latest = checkpoint_path + "model-latest.h5"
+checkpoint_path_latest = f"{checkpoint_path}model-latest.h5"
 checkpoint_latest = ModelCheckpoint(checkpoint_path_latest,
         monitor='val_loss',
         verbose=1, 
@@ -151,47 +159,81 @@ checkpoint_latest = ModelCheckpoint(checkpoint_path_latest,
 logdir = f"./tb_logs/scalars/{config['run']}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 tensorboard_callback = TensorBoard(
         log_dir=logdir, 
-        histogram_freq=1,
-        write_graph=True,
-        write_images=True,
-        embeddings_freq=1,
+        update_freq='batch',
+        #histogram_freq=1,
+        #write_graph=True,
+        #write_images=True,
+        #embeddings_freq=1,
         )
 
+loss_history = EpochLoss.LossHistory(f"{run_path}/loss_history.csv", f"{run_path}")
+
+lr_scheduler = tf.keras.callbacks.LearningRateScheduler(
+        lr_schedule, verbose = 0)
+
 _callbacks = [
-        batch_loss_writer, 
-        epoch_loss_writer, 
+        loss_history,
         checkpoint_best, 
         checkpoint_latest,
         tensorboard_callback,
+        lr_scheduler,
 ]
 
 callbacks = tf.keras.callbacks.CallbackList(
             _callbacks, add_history=True, model=model)
 
 logs = {}
-callbacks.on_train_begin(logs=logs)
-
 
 def dotfit():
-    train_generator = create_generator(data_train, train_vector, train_keys, True)
-    val_generator = create_generator(data_val, val_vector, val_keys, True)
+    logging.info("training with .fit()")
+    train_generator = generator.DataGenerator(
+            train_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=True, training=True)
+    val_generator = generator.DataGenerator(
+            val_pairs, 
+            config['batch_size'], 
+            tokenizer, 
+            config['units'], 
+            config['max_length'], 
+            vocab_size, 
+            pre_load_betas=False,
+            shuffle=False, training=True)
+
+    build_time = time.perf_counter()
+    model(val_generator.__getitem__(0)[0])
+    print(f"Model build time: {(time.perf_counter() - build_time):.3f}")
+    print(model.summary())
 
     model.fit(
             train_generator,
             epochs=config['epochs'],
-            steps_per_epoch=len(data_train)//config['batch_size'],
+            steps_per_epoch= len(train_pairs)//config['batch_size'],
             batch_size=config['batch_size'],
             callbacks=_callbacks,
             validation_data = val_generator,
-            validation_steps = len(data_val)//config['batch_size'],
+            validation_steps = len(val_pairs)//config['batch_size'],
             initial_epoch = 0
     )
+    """
+    print("--- Weights ---")
+    m_weights = model.get_weights()
+    np.save(f"{run_path}/pre_train_weights.npy", m_weights, allow_pickle=True)
+    #print(model.get_layer('lstm'))
+    """
     return
+
 
 def custom_train_loop():
     print(f"------\nRunning custom training loop")
     print(f"Running for {config['epochs'] - start_epoch} epochs\n------")
 
+    callbacks.on_train_begin(logs=logs)
     # Train for N epochs
     for epoch in range(start_epoch, config['epochs']):
         print(f"\nepoch {epoch+1}/{config['epochs']}")

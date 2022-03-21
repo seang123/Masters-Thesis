@@ -1,6 +1,56 @@
 import numpy as np
 from tensorflow.keras.callbacks import Callback
 import csv
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+import pandas as pd
+import logging
+from contextlib import redirect_stdout 
+
+loggerA = logging.getLogger(__name__ + '.LossHistory')
+
+class LossHistory(Callback):
+
+    def __init__(self, file_name, summary_path):
+        self.file_name = file_name
+        self.summary_path = summary_path
+        self.df = pd.DataFrame()
+        self.df_ls = [] # temporary store of data before sending it to df (df.append is slow)
+        self.cur_epoch = 0
+
+    def on_train_batch_end(self, batch, logs=None):
+        logs['epoch'] = self.cur_epoch
+        #self.df = self.df.append(logs, ignore_index=True)
+        self.df_ls.append(logs)
+
+    def on_test_batch_end(self, batch, logs=None):
+        logs = {f"val_{k}":v for k,v in logs.items()} # append val_ to name
+        logs['epoch'] = self.cur_epoch
+        
+        #self.df = self.df.append(logs, ignore_index=True)
+        self.df_ls.append(logs)
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.cur_epoch += 1
+
+        for d in self.df_ls:
+            self.df = self.df.append(d, ignore_index=True)
+            #self.df = pd.concat([self.df, pd.DataFrame(d)], ignore_index=True)
+        self.df_ls = []
+
+        self.df.to_csv(self.file_name, index=False)
+        loggerA.info(f'saving loss history to csv - epoch: {epoch}')
+
+        if epoch == 0:
+            with open(f'{self.summary_path}/modelsummary.txt', 'w') as f:
+                with redirect_stdout(f):
+                    self.model.summary()
+                    loggerA.info(f"saving model summary to: {f.name}")
+
+    def on_train_end(self, logs=None):
+        self.df.to_csv(self.file_name, index=False) 
+        loggerA.info(f'saving loss history to csv - END')
+
 
 
 class EpochLoss(Callback):
