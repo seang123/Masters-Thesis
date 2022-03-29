@@ -19,23 +19,29 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 
 #### Load subj02 nsd keys 
-nsd_keys, shr_nsd_keys = loader.get_nsd_keys('/home/seagie/NSD2/')
+nsd_keys, shr_nsd_keys, test_keys = loader.get_nsd_keys('2')
 
 print("nsd_keys:    ", nsd_keys.shape)
 print("shr_nsd_keys:", shr_nsd_keys.shape)
 
+## Subtract 1 from nsd-keys to get 0 idx keys for using with nsd_access
 print("nsd keys:", nsd_keys[:10])
 nsd_keys     = nsd_keys - 1
 shr_nsd_keys = shr_nsd_keys - 1
 print("nsd keys:", nsd_keys[:10])
 
 
-nsd_loader = NSDAccess("/home/seagie/NSD")
+nsd_loader = NSDAccess("/home/seagie/NSD2")
 nsd_loader.stim_descriptions = pd.read_csv(nsd_loader.stimuli_description_file, index_col=0)
 print("NSD access initalized ...")
 
 image_model = tf.keras.applications.VGG16(include_top = True, weights = 'imagenet')
 print("Image model loaded ... ")
+
+for i in range(len(image_model.layers)):
+    print(image_model.layers[i].output)
+
+raise
 
 new_input = image_model.input
 hidden_layer = image_model.layers[-2].output # take last fc layer (4096,)

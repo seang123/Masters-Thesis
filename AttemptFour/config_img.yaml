@@ -1,8 +1,11 @@
 ---
  # Name the current run
- run: image_attention_model
+ run: image_attention_model_single_enc_bn
 
  info: | 
+     single encoder layer + bn
+     using 196 * 512 input
+     smaller input L2 by 100x 
      Show attend and tell model
      using only 485 validation samples, rest is test set
      dropout

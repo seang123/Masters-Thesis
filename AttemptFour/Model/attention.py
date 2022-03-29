@@ -41,7 +41,7 @@ class Attention(tf.keras.layers.Layer):
 
         context_vector = tf.reduce_sum(attention_weights * features, axis=1) # (bs, embed_dim)
 
-        return context_vector, attention_weights
+        return context_vector, attention_weights, attention_hidden_layer
 
 
 

@@ -9,10 +9,9 @@ import os, sys
 import tensorflow as tf
 import numpy as np
 import tqdm
-from Model import lc_NIC
-#from Model import tmp_lc_NIC as lc_NIC
+from Model import img_NIC as lc_NIC
 from DataLoaders import load_avg_betas as loader
-from DataLoaders import data_generator_guse as generator
+from DataLoaders import data_generator_image as generator
 from tabulate import tabulate
 import argparse
 from itertools import groupby
@@ -28,7 +27,6 @@ tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 parser = argparse.ArgumentParser(description='Evaluate NIC model')
 parser.add_argument('--dir', type=str, required=False)
 parser.add_argument('--e', type=int, required=False)
-parser.add_argument('--sub', type=str, required=False)
 args = parser.parse_args()
 
 ## ======= Parameters =========
@@ -38,19 +36,15 @@ subject = '2'
 
 if args.dir != None: model_name = args.dir
 if args.e != None: epoch = args.e
-if args.sub != None: subject = args.sub
-
-print(">> Subject: ", subject)
 
 model_dir = f"./Log/{model_name}/model/model-ep{epoch:03}.h5"
 print("Model dir:   ", model_dir)
 
-#print("sleep 5 sec")
-#time.sleep(5)
+time.sleep(5)
 
 ## ======= Config =========
 
-with open(f"./Log/{model_name}/config.yaml", "r") as f:
+with open(f"./Log/{model_name}/config_img.yaml", "r") as f:
     config = yaml.safe_load(f)
     print(f"Config file loaded:\n\t {f.name}")
 
@@ -81,9 +75,9 @@ tokenizer = loader.load_tokenizer()
 #tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
 #tokenizer, _ = loader.build_tokenizer(np.concatenate((train_keys, val_keys)), config['top_k'])
 
-train_pairs = loader.create_pairs(train_keys, subj=subject, single=True)
-val_pairs   = loader.create_pairs(val_keys, subj=subject, single=True)
-test_pairs   = loader.create_pairs(test_keys, subj=subject, single=True)
+train_pairs = loader.create_pairs(train_keys, single=True)
+val_pairs   = loader.create_pairs(val_keys, single=True)
+test_pairs   = loader.create_pairs(test_keys, single=True)
 print(f"train_pairs: {len(train_pairs)}")
 print(f"val_pairs  : {len(val_pairs)}")
 print(f"test_pairs : {len(test_pairs)}")
@@ -106,7 +100,6 @@ data_generator = generator.DataGenerator(
         config['units'], 
         config['max_length'], 
         vocab_size, 
-        subject = subject,
         pre_load_betas=False,
         shuffle=False, 
         training=False)
@@ -114,7 +107,7 @@ print("len generator:", len(data_generator))
 
 ## ======= Model =========
 model = lc_NIC.NIC(
-        loader.get_groups(config['group_size'], True),
+        config['group_size'],
         config['units'],
         config['embedding_features'], 
         config['embedding_text'],
@@ -150,7 +143,6 @@ def eval_model():
     all_outputs = []
     all_outputs_raw = []
     all_attention_scores = []
-    all_attention_weights = []
 
     for i in tqdm.tqdm(range(0, len(data_generator)+1)):
         sample = data_generator[i]
@@ -164,61 +156,28 @@ def eval_model():
         all_outputs.append(outputs)
         all_outputs_raw.append(outputs_raw)
         all_attention_scores.append(attention_scores)
-        #all_attention_weights.append(attention_weights)
 
     # Concat the batches into one matrix
     outputs = np.concatenate((all_outputs), axis=0)
     outputs_raw = np.concatenate((all_outputs_raw), axis=0)
     attention_scores = np.swapaxes(np.concatenate((all_attention_scores), axis=1), 0, 1)
-    #attention_weights = np.swapaxes(np.concatenate((all_attention_weights), axis=1), 0, 1)
 
     print("outputs:", outputs.shape)
     print("outputs_raw:", outputs_raw.shape)
     print("attention scores:", attention_scores.shape)
 
-    add_name = f""
-
-    with open(f"{out_path}/output_captions_{epoch}{add_name}.npy", "wb") as f:
+    with open(f"{out_path}/output_captions_{epoch}.npy", "wb") as f:
         np.save(f, outputs)
-    with open(f"{out_path}/output_captions_raw_{epoch}{add_name}.npy", "wb") as f:
+    with open(f"{out_path}/output_captions_raw_{epoch}.npy", "wb") as f:
         np.save(f, outputs_raw)
-    with open(f"{out_path}/attention_scores_{epoch}{add_name}.npy", "wb") as f:
+    with open(f"{out_path}/attention_scores_{epoch}.npy", "wb") as f:
         np.save(f, attention_scores)
-    #with open(f"{out_path}/attention_weights_{epoch}{add_name}.npy", "wb") as f:
-    #    np.save(f, attention_weights)
     with open(f"{out_path}/tokenizer.json", "w") as f:
         f.write(tokenizer.to_json())
 
 
     return outputs, attention_scores
 
-def eval_fc_model():
-    """ Evaluate the FC model """
-    all_outputs = []
-    all_outputs_raw = []
-    all_attention_scores = []
-    all_attention_weights = []
-
-    for i in tqdm.tqdm(range(0, len(data_generator)+1)):
-        sample = data_generator[i]
-        features, _, a0, c0 = sample[0]
-        target = sample[1]
-        keys = sample[2]
-
-        start_seq = np.repeat([tokenizer.word_index['<start>']], features.shape[0])
-
-        outputs = model.greedy_predict(features, tf.convert_to_tensor(a0), tf.convert_to_tensor(c0), start_seq, config['max_length'], config['units'], tokenizer) 
-        all_outputs.append(outputs)
-
-    all_outputs = np.swapaxes(np.concatenate((all_outputs), axis=1), 0, 1)
-    print("outputs:", all_outputs.shape)
-
-    add_name = ""
-    with open(f"{out_path}/output_captions_{epoch}{add_name}.npy", "wb") as f:
-        np.save(f, all_outputs)
-    with open(f"{out_path}/tokenizer.json", "w") as f:
-        f.write(tokenizer.to_json())
 
 if __name__ == '__main__':
-    #eval_fc_model()
     eval_model()

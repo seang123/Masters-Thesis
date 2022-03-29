@@ -31,8 +31,7 @@ class LocallyDense(tf.keras.layers.Layer):
 
         # Create a layer for each output group
         self.dense_layers = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
-        assert len(self.dense_layers) == 360, "Incorrect nr. of encoder layers"
-        self.dense_layers2 = [tf.keras.layers.Dense(dim, **kwargs) for dim in out_groups]
+        #assert len(self.dense_layers) == 360, "Incorrect nr. of encoder layers"
 
         # Combine the input groups
         self.input_groups = in_groups

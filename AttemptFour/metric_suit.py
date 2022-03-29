@@ -21,21 +21,24 @@ from nsd_access import NSDAccess
 parser = argparse.ArgumentParser(description="Metric Suit")
 parser.add_argument('--dir', type=str, required=True)
 parser.add_argument('--e', type=str, required=False)
+parser.add_argument('--add', type=str, required=False)
 args = parser.parse_args()
 
 # Data dir
 data_loc = os.path.join('Log', args.dir, 'eval_out')
 output_loc = f"{data_loc}/output_captions.npy"
 if args.e != None: output_loc = f"{data_loc}/output_captions_{args.e}.npy"
+if args.add != None: output_loc = f"{data_loc}/output_captions_{args.e}_{args.add}.npy"
 annotation_file = f"/home/seagie/NSD3/nsddata_stimuli/stimuli/nsd/annotations/captions_train2017.json" # mscoco train-set contains all validation images
 #annotation_file = f"./captions_val2014.json"
 results_file = f"{data_loc}/captions_results.json"
 tokenizer_loc = f"{data_loc}/tokenizer.json"
 
 # Validation data NSD keys
-conditions = pd.read_csv(f"./TrainData/subj02_conditions.csv")
-val_keys = conditions.loc[conditions['is_shared'] == 1]
-val_keys = val_keys.reset_index(drop=True)
+#conditions = pd.read_csv(f"./TrainData/subj02_conditions.csv")
+#val_keys = conditions.loc[conditions['is_shared'] == 1]
+#val_keys = val_keys.reset_index(drop=True)
+val_keys = pd.read_csv(f"./TrainData/test_conditions.csv") # overwrite val set with test set
 
 # NSD_access (not needed, just for testing)
 nsd_loader = NSDAccess("/home/seagie/NSD3/")
@@ -68,13 +71,13 @@ def create_data_json(captions):
     # Tokenized captions -> Text captions
     captions = tokenizer.sequences_to_texts(captions)
 
-    # We need to get the overall COCO image_id (different from the NSD keys) 
-    targets = nsd_loader.read_image_coco_info(list(val_keys['nsd_key']-1)) # len == 1000 len(0) == 5
+    # Get the overall COCO image_id (different from the NSD keys) 
+    targets = nsd_loader.read_image_coco_info(list(val_keys['nsd_key']-1)) # len == 515 len(0) == 5
 
     results = []
     for i, key in enumerate(val_keys['nsd_key']):
         mod_cap = remove_end_pad(captions[i])
-        results.append( {"image_id": targets[i][-1]['image_id'], "caption": mod_cap} )
+        results.append( {"image_id": targets[i][-1]['image_id'], "caption": mod_cap} ) 
 
     with open(f"{results_file}", "w") as f:
         json.dump(results, f)
