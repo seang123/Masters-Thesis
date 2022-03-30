@@ -28,7 +28,7 @@ for i in range(0, len(physical_devices)):
 tf.config.set_visible_devices(physical_devices[gpu_to_use], 'GPU')
 
 guse_sim = '/fast/seagie/data/subj_2/subj_2_guse_pre_processed.npy'
-log_dir = './Log/no_attn_loss_const_lr2/eval_out'
+log_dir = './Log/proper_split_sub2/eval_out'
 output_file = log_dir + '/output_captions_train.npy'
 tokenizer_loc = f"{log_dir}/tokenizer.json"
 

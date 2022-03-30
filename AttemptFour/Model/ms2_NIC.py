@@ -124,7 +124,9 @@ class NIC(tf.keras.Model):
         )
 
         # LSTM layer
-        self.lstm = LSTM(units,
+        print("---- using standard LSTM ----")
+        self.lstm = LSTM(
+            units,
             return_sequences=True,
             return_state=True,
             kernel_regularizer=self.l2_lstm,
@@ -225,7 +227,7 @@ class NIC(tf.keras.Model):
         # Pass through LSTM
         for i in range(text.shape[1]):
             # compute attention context
-            context, attn_scores = self.attention(a, features, training=training)
+            context, attn_scores, _ = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
             #attention_scores += attn_scores
@@ -268,7 +270,7 @@ class NIC(tf.keras.Model):
         # Pass through LSTM
         for i in range(text.shape[1]):
             # compute attention context
-            context, attn_scores = self.attention(a, features, training=training)
+            context, attn_scores, _ = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
             #attention_scores += attn_scores

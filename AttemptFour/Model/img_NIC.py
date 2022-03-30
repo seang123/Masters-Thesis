@@ -58,7 +58,7 @@ class NIC(tf.keras.Model):
 
         # For use with:  attention
         self.dense_in = img_localDense.LocallyDense(
-            n_features = 512,
+            n_features = 196, # 512,
             embed_dim = group_size,
             dropout = self.dropout,
             activation=LeakyReLU(0.2),
@@ -66,6 +66,14 @@ class NIC(tf.keras.Model):
             kernel_regularizer=self.l2_in,
             #name = 'lc_dense_in'
         )
+        """
+        self.dense_in = Dense(
+            32,
+            activation=LeakyReLU(0.2),
+            kernel_initializer='he_normal',
+            kernel_regularizer=self.l2_in,
+        )
+        """
 
         """
         # No attention model 
@@ -157,7 +165,8 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dropout(self.dense_in(img_input, training=training), training=training)
+        features = self.dense_in(img_input, training=training)
+        features = self.dropout(features, training=training)
     
         # Embed the caption vector
         text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
@@ -384,8 +393,8 @@ class NIC(tf.keras.Model):
         return 1 - self.cosine_similarity(x, y)
 
     def greedy_predict(self, *args, **kwargs):
-        return self.greedy_predict_fc(*args, **kwargs)
-        #return self.greedy_predict_attention(*args, **kwargs)
+        #return self.greedy_predict_fc(*args, **kwargs)
+        return self.greedy_predict_attention(*args, **kwargs)
 
     def greedy_predict_fc(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
         # Encoding 
@@ -418,7 +427,7 @@ class NIC(tf.keras.Model):
         #assert outputs.shape == (features.shape[0], 13, 1), f"{outputs.shape}"
         return outputs, None
 
-    def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
+    def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer, training=False):
         """ Make a prediction for a set of features and start token
 
         Should be fed directly from the data generator
@@ -444,10 +453,11 @@ class NIC(tf.keras.Model):
                 holds the words produced for each caption/batch
 
         """
+        assert training == False, "training is set to True"
 
-        features = self.dense_in(img_input)
+        features = self.dense_in(img_input, training=training)
 
-        text = self.embedding(start_seq)
+        text = self.embedding(start_seq, training=training)
         text = self.expand(text)
 
         a = a0
@@ -455,6 +465,7 @@ class NIC(tf.keras.Model):
 
         attention_scores = []
         outputs = []
+        outputs_raw = []
         for i in range(max_len):
             context, attention_score = self.attention(a, features, training=False)
             context = self.expand(context)
@@ -462,8 +473,13 @@ class NIC(tf.keras.Model):
             attention_scores.append(attention_score)
 
             sample = tf.concat([context, text], axis=-1)
-            A, a, c = self.lstm(sample, initial_state=[a,c], training=False)
-            output = self.dense_out(A) # (bs, 1, 5001)
+            _, a, c = self.lstm(sample, initial_state=[a,c], training=False)
+
+            seq = self.dropout_lstm(self.expand(a), training=training)
+            output = self.dense_inter(seq, training=training)
+            output = self.dropout_out(output, training=training)
+            output = self.dense_out(output, training=training) # (bs, 1, 5001)
+            outputs_raw.append(output)
 
             # Greedy choice
             word = np.argmax(output, axis=-1)
@@ -474,7 +490,9 @@ class NIC(tf.keras.Model):
             # encode the new word
             text = self.embedding(word)
 
-        return np.array(outputs), np.array(attention_scores)
+        outputs = np.stack(outputs, axis=1)
+        outputs_raw = np.concatenate(outputs_raw, axis=1)
+        return outputs, outputs_raw, np.array(attention_scores)
 
     def non_greedy_word_select(output):
         """ Return an index of a vector based on its probability

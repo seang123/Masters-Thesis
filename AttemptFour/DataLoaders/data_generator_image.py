@@ -85,7 +85,7 @@ class DataGenerator(keras.utils.Sequence):
                 data_batch[i] = np.load(f).astype(np.float32)
 
         # The Xu. et al. paper uses 196x512 input
-        #data_batch = np.swapaxes(data_batch, 2, 1)
+        data_batch = np.swapaxes(data_batch, 2, 1)
 
         # Tokenize captions
         cap_seqs = self.tokenizer.texts_to_sequences(cap) # int32

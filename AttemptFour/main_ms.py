@@ -22,7 +22,7 @@ from datetime import datetime
 import subprocess
 import yaml
 
-gpu_to_use = 1
+gpu_to_use = 0
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -99,8 +99,8 @@ val_pairs = [val_pairs_one, val_pairs_two]
 print(len(train_pairs), len(train_pairs[0]))
 print(len(val_pairs), len(val_pairs[0]))
 
-tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
-#tokenizer = loader.load_tokenizer()
+#tokenizer, _ = loader.build_tokenizer(np.arange(1, 73001), config['top_k'])
+tokenizer = loader.load_tokenizer()
 
 def lr_schedule(step):
     # final lr = initial_lr * decay_rate

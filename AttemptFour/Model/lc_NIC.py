@@ -6,6 +6,7 @@ import sys
 sys.path.append("/home/seagie/NSD/Code/Masters-Thesis/AttemptFour/Model")
 from tensorflow.keras.layers import (Dense,
                             LSTM,
+                            GRU,
                             BatchNormalization,
                             Dropout,
                             Embedding,
@@ -58,7 +59,7 @@ class NIC(tf.keras.Model):
 
         """
         self.dense_in = fullyConnected.FullyConnected(
-                embed_dim = embedding_features,
+                embed_dim = 512, #embedding_features,
                 dropout = self.dropout,
                 activation = LeakyReLU(0.2),
                 kernel_regularizer = self.l2_in
@@ -94,7 +95,7 @@ class NIC(tf.keras.Model):
         self.attention = attention.Attention(
             units=attn_units,
             dropout=self.dropout_attn,
-            activation=None, # LeakyReLU(0.2),
+            activation=LeakyReLU(0.2),
             kernel_initializer='he_normal',
             kernel_regularizer=self.l2_attn,
             #name = 'attention'
@@ -111,7 +112,7 @@ class NIC(tf.keras.Model):
         )
 
         # LSTM layer
-        use_layer_norm = True
+        use_layer_norm = False
         if not use_layer_norm:
             print("-- Using standard LSTM --")
             self.lstm = LSTM(units,
@@ -193,16 +194,16 @@ class NIC(tf.keras.Model):
         outputs = []
         for i in range(text_full.shape[1]):
             # compute attention context
-            context, attn_scores = self.attention(a, features, training=training)
+            context, attn_scores, _ = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
             #attention_scores += attn_scores
             attention_scores.append( attn_scores )
 
             sample = tf.concat([context, text], axis=-1) # (bs, 1, embed_features + embed_text)
-            seq, a, c = self.lstm(sample, initial_state=[a,c], training=training)
-
-            seq = self.dropout_lstm(seq, training=training)
+            _, a, c = self.lstm(sample, initial_state=[a,c], training=training)
+            
+            seq = self.dropout_lstm(self.expand(a), training=training)
 
             # Dense-Decoder
             output = self.dropout_output(seq, training=training)
@@ -226,7 +227,7 @@ class NIC(tf.keras.Model):
         img_input = self.dropout_input(img_input, training=training)
 
         # Features from regions
-        features = self.dropout(self.dense_in(img_input, training=training), training=training)
+        features = self.dense_in(img_input, training=training)
 
         # Embed the caption vector
         text = self.dropout_text(self.embedding(text_input), training=training) # (bs, max_len, embed_dim)
@@ -242,7 +243,7 @@ class NIC(tf.keras.Model):
         # Pass through LSTM
         for i in range(text.shape[1]):
             # compute attention context
-            context, attn_scores = self.attention(a, features, training=training)
+            context, attn_scores, _ = self.attention(a, features, training=training)
             context = self.expand(context) # (bs, 1, group_size)
 
             #attention_scores += attn_scores
@@ -310,15 +311,18 @@ class NIC(tf.keras.Model):
         a0 = tf.convert_to_tensor(a0)
         c0 = tf.convert_to_tensor(c0)
 
-        sample = tf.concat([features, text], axis=1) # (bs, 1, embed_features + embed_text)
+        #sample = tf.concat([features, text], axis=1) # (bs, 1, embed_features + embed_text)
 
         # Pass through LSTM
-        A, _, _ = self.lstm(features, initial_state=[a0, c0], training=training)
+        _, a, c = self.lstm(features, initial_state=[a0, c0], training=training)
+        A, _, _ = self.lstm(text, initial_state=[a0, c0], training=training)
 
         # Convert to vocab
-        output = self.dense_out(A)
+        A = self.dropout_lstm(A, training=training)
+        A = self.dropout_output(self.dense_inter(A, training=training), training=training)
+        output = self.dense_out(A, training=training)
 
-        return output
+        return output, None
 
 
     @tf.function()
@@ -497,9 +501,46 @@ class NIC(tf.keras.Model):
         """
         return 1 - self.cosine_similarity(x, y)
 
+    # ---===================---
+    # ---=== Predictions ===---
+    # ---===================---
     def greedy_predict(self, *args, **kwargs):
-        #return self.greedy_predict_lc(*args, **kwargs)
         return self.greedy_predict_attention(*args, **kwargs)
+        #return self.greedy_predict_fc(*args, **kwargs)
+
+    def greedy_predict_fc(self, img_input, a0, c0, start_seq, max_len, units, tokenizer, training=False):
+        # Fully connected model (no loc-connection || attention)
+
+        features = self.dense_in(img_input, training=False) 
+        features = self.expand(features)
+        
+        text = self.embedding(start_seq)
+        text = self.expand(text)
+
+        word = np.ones((features.shape[0], 1, 1))
+
+        _, a, c = self.lstm(features, initial_state=[a0,c0], training=False)
+        outputs = []
+        outputs_raw = []
+        for i in range(max_len):
+            if np.all(word == 0):
+                outputs.append(word)
+            else:
+                _, a, c = self.lstm(text, initial_state=[a,c], training=False)
+                out = self.expand(a)
+                out = self.dense_inter(out, training=False)
+                out = self.dense_out(out, training=False) # (bs, 1, 5001)
+                #outputs_raw.append(out)
+
+                # Greedy choice
+                word = np.argmax(out, axis=-1) # (bs,1,1)
+                outputs.append(word)
+
+                # encode the new word
+                text = self.embedding(word)
+
+        return np.array(outputs)
+
 
     def greedy_predict_lc(self, img_input, a0, c0, start_seq, max_len, units, tokenizer):
 
@@ -527,6 +568,12 @@ class NIC(tf.keras.Model):
 
         return np.array(outputs)
 
+    def sample_choice(self, probs):
+        # probs := (bs, 1, 5001)
+        x = np.squeeze(probs, axis=1)
+        samples = tf.random.categorical(tf.math.log(x), 1).numpy() # -> [bs, num_samples]
+        return samples 
+
     def greedy_predict_attention(self, img_input, a0, c0, start_seq, max_len, units, tokenizer, training=False):
         """ Make a prediction for a set of features and start token
 
@@ -541,6 +588,7 @@ class NIC(tf.keras.Model):
             attention-scores : ndarray
 
         """
+        assert training == False, "training is set to True"
 
         features = self.dense_in(img_input, training=training)
         features = self.dropout(features, training=training)
@@ -553,12 +601,14 @@ class NIC(tf.keras.Model):
         c = c0
 
         attention_scores = []
+        attention_weights = []
         outputs = []
         outputs_raw = []
         for i in range(max_len):
-            context, attention_score = self.attention(a, features, training=training)
+            context, attention_score, attention_weight = self.attention(a, features, training=training)
             context = self.expand(context)
             attention_scores.append( np.array(attention_score) )
+            attention_weights.append( np.array(attention_weight) )
 
             # Plot attention
 
@@ -575,6 +625,7 @@ class NIC(tf.keras.Model):
 
             # Greedy choice
             word = np.argmax(output, axis=-1)
+            #word = self.sample_choice(output)
             outputs.append(word)
 
             # encode the new word
@@ -584,7 +635,7 @@ class NIC(tf.keras.Model):
         outputs = np.stack(outputs, axis=1)
         outputs_raw = np.concatenate(outputs_raw, axis=1)
         assert outputs.shape == (features.shape[0], max_len, 1)
-        return outputs, outputs_raw, np.array(attention_scores)
+        return outputs, outputs_raw, np.array(attention_scores), np.array(attention_weights)
 
     def beam_search(self, features, start_seq, max_len, units):
 

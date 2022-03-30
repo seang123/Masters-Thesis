@@ -72,8 +72,8 @@ def compute_tnse():
         plt.close(fig)
 
 def captions(target: str):
-
-    train_keys, val_keys = loader.get_nsd_keys('2')
+    """ loop through caps and see if a target word is present in the caption """
+    train_keys, val_keys, test_keys = loader.get_nsd_keys('2')
     pairs_t = loader.create_pairs(train_keys)
 
     pairs_t = [i[1] for i in pairs_t]

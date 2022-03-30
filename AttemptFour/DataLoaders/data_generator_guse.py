@@ -26,8 +26,8 @@ class DataGenerator(keras.utils.Sequence):
 
     def __init__(self, pairs, batch_size, tokenizer, units, max_len, vocab_size, subject='2', pre_load_betas=False, shuffle=True, training=False):
         print("initialising DataGenerator")
-        self.subject=subject
-        self.betas_path    = f"/fast/seagie/data/subj_{self.subject}/betas_averaged/"
+        #self.subject=subject
+        #self.betas_path    = f"/fast/seagie/data/subj_{self.subject}/betas_averaged/"
         self.pairs = np.array(pairs)
         self.batch_size = batch_size
         self.tokenizer = tokenizer

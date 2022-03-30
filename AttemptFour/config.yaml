@@ -1,8 +1,9 @@
 ---
  # Name the current run
- run: test_linear_attention
+ run: multi_subject_baseline
 
  info: | 
+     trained on sub 2 and 1
      using proper split
      using standard lstm
      using only 485 validation samples, rest is test set

@@ -52,6 +52,7 @@ df = pd.read_csv(open(f"./glasser_viz/glasser_description.csv", "r"), index_col=
 conditions = pd.read_csv(f"./TrainData/subj02_conditions.csv")
 val_keys = conditions.loc[conditions['is_shared'] == 1]
 val_keys = val_keys.reset_index(drop=True)
+val_keys = pd.read_csv(f"./TrainData/test_conditions.csv") # overwrite val keys with test keys
 
 ## Setup glasser region groups
 GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
@@ -186,7 +187,7 @@ def get_picture(idx):
 
 def print_examples(samples: int, output: np.array):
 
-    indices = np.random.randint(0, 1000, samples)
+    indices = np.random.randint(0, 515, samples)
 
     for i in indices:
         cand = get_caption(i, output)[0]
@@ -583,9 +584,6 @@ def guse_comparison(idx, outputs):
     similarity = guse_comp.guse_comparison(caption)
     return
 
-def rank_transform(data):
-    #sigmoid = lambda x: 1 / (1 + np.exp(-x))
-    return np.log(data)
 
 def attn_statistics(attn_scores):
     print("max:", np.max(attention_scores[idx]))
@@ -623,15 +621,20 @@ def linear_attn_maps(idx, attn_scores):
 def plot_vocab_dist():
     return
 
+def rank_transform(data):
+    #sigmoid = lambda x: 1 / (1 + np.exp(-x))
+    return np.log(data)
+
 if __name__ == '__main__':
     outputs, attention_scores = load_data()
-    idx =  np.random.randint(0, 1000) # 672 - cattle, 2 - surfer, 946 - snowboarder
+    idx =  np.random.randint(0, 515) # 672 - cattle, 2 - surfer, 946 - snowboarder
     print(f"--- trial: {idx} --- NSD: {val_keys['nsd_key'].iloc[idx]} ---")
 
     # Rank transform
-    #attention_scores = rank_transform(attention_scores)
+    attention_scores = rank_transform(attention_scores)
 
-    #print_examples(5, outputs)
+    print_examples(2, outputs)
+    sys.exit(0)
 
     plot_image_caption(idx, outputs)
 #    attention_by_tag(outputs, attention_scores)

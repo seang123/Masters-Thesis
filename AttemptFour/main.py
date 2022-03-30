@@ -9,6 +9,7 @@ import tensorflow_addons as tfa
 from tensorflow.keras.utils import Progbar
 import numpy as np
 from Model import lc_NIC
+#from Model import tmp_lc_NIC as lc_NIC
 #from Model import glove_NIC as lc_NIC
 from DataLoaders import load_avg_betas as loader
 #from DataLoaders import data_generator as generator
@@ -21,7 +22,7 @@ from datetime import datetime
 import subprocess
 import yaml
 
-gpu_to_use = 1
+gpu_to_use = 0
 print(f"Running on GPU: {gpu_to_use}")
 
 # Allow memory growth on GPU devices 
@@ -69,8 +70,8 @@ print("val_keys:", val_keys.shape)
 print("test_keys:", test_keys.shape)
 
 # Create pairs
-train_pairs = np.array(loader.create_pairs(train_keys))
-val_pairs = np.array(loader.create_pairs(val_keys))
+train_pairs = np.array(loader.create_pairs(train_keys, subj='2'))
+val_pairs = np.array(loader.create_pairs(val_keys, subj='2'))
 print("train_pairs:", train_pairs.shape)
 print("val_pairs:  ", val_pairs.shape)
 
@@ -110,11 +111,8 @@ loss_object = tf.keras.losses.CategoricalCrossentropy(
 
 # Setup Model
 model = lc_NIC.NIC(
-        #loader.get_groups(config['embedding_features'])[0], 
-        #loader.get_groups(config['embedding_features'])[1],
-        #loader.get_groups(config['group_size'])[0], 
-        #loader.get_groups(config['group_size'])[1],
-        loader.get_groups(config['group_size'], separate_hemi=True),
+        #loader.get_groups(config['group_size'], separate_hemi=True),
+        loader.select_groups(config['group_size'], remove=[142,17,133,315,1, 197,158,192,135,153,137,140,92,183,125]),
         config['units'], 
         config['embedding_features'], 
         config['embedding_text'],

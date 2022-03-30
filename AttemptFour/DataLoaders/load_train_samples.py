@@ -28,70 +28,73 @@ targetspace = 'fsaverage'
 betas_file_name = "subj02_betas_fsaverage_averaged.npy"
 captions_path = "/fast/seagie/data/captions/"
 betas_path = "/fast/seagie/data/subj_2/betas_averaged/"
-USE_ENTIRE_CORTEX = True
-SEPARATE_HEMISPHERES = True
+#USE_ENTIRE_CORTEX = True
+#SEPARATE_HEMISPHERES = True
 
 ## ====== Glasser ======
-GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
-GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
-VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
+def prepare_glasser_groups(USE_ENTIRE_CORTEX=True, SEPARATE_HEMISPHERES=True):
+    GLASSER_LH = '/home/danant/misc/lh.HCP_MMP1.mgz'
+    GLASSER_RH = '/home/danant/misc/rh.HCP_MMP1.mgz'
+    VISUAL_MASK = '/home/danant/misc/visual_parcels_glasser.csv'
 
-glasser_lh = nb.load(GLASSER_LH).get_data() # 163_842 values in the range [0, 180]
-glasser_rh = nb.load(GLASSER_RH).get_data()
+    glasser_lh = nb.load(GLASSER_LH).get_data() # 163_842 values in the range [0, 180]
+    glasser_rh = nb.load(GLASSER_RH).get_data()
 
-glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
+    glasser = np.vstack((glasser_lh, glasser_rh)).flatten()
 
-print("glasser_lh", glasser_lh.shape)
-print("glasser_rh", glasser_rh.shape)
-print("glasser   ", glasser.shape)
+    print("glasser_lh", glasser_lh.shape)
+    print("glasser_rh", glasser_rh.shape)
+    print("glasser   ", glasser.shape)
 
-visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
-visual_parcel_list = list(visual_parcels.values.flatten())
+    visual_parcels = pd.read_csv(VISUAL_MASK, index_col=0)
+    visual_parcel_list = list(visual_parcels.values.flatten())
 
-if USE_ENTIRE_CORTEX == False:
-    ## If using only visual cortex
-    print("-- visual area glasser regions --")
-    groups = []
-    glasser_indices = np.array(range(len(glasser))) # [0 to 163841]
-    for i in visual_parcel_list:
-        group = glasser_indices[glasser==i]
-        groups.append(group)
-elif SEPARATE_HEMISPHERES: 
-    print("-- separate hemisphere glasser regions --")
-    ## Separate Glasser regions into hemisphers - 360 regions
-    glasser_lh = glasser_lh.flatten()
-    glasser_rh = glasser_rh.flatten()
-    # Right
-    glasser_indices_rh = np.array(range(len(glasser_rh))) # [0 to 163_841]
-    groups_rh = []
-    for i in set(glasser_rh):
-        groups_rh.append(glasser_indices_rh[glasser_rh == i])
-    # Left 
-    glasser_indices_lh = np.array(range(len(glasser_lh))) # [0 to 163_841]
-    groups_lh = []
-    for i in set(glasser_lh):
-        groups_lh.append(glasser_indices_lh[glasser_lh == i])
-    print("excluding group 0")
-    print("groups_lh:", len(groups_lh[1:]))
-    print("groups_rh:", len(groups_rh[1:]))
-    print("Avg. group size lh:     ", np.mean([len(g) for g in groups_lh[1:]]))
-    print("Avg. group size rh:     ", np.mean([len(g) for g in groups_rh[1:]]))
-    print("max group size lh | rh: ", np.max([len(g) for g in groups_lh[1:]]), np.max([len(g) for g in groups_rh[1:]]))
-    print("min group size lh | rh: ", np.min([len(g) for g in groups_lh[1:]]), np.min([len(g) for g in groups_rh[1:]]))
-    groups = groups_lh[1:] + groups_rh[1:]
-    print("groups: ", len(groups))
-else:
-    ## If using entire cortex
-    print("-- full cortex glasser regions --")
-    groups = []
-    glasser_indices = np.array(range(len(glasser)))
-    for i in set(glasser):
-        group = glasser_indices[glasser == i]
-        groups.append(group)
-    groups = groups[1:]
-    print("sum of groups sizes:", sum([len(g) for g in groups]))
-    print("Avg. group size:    ", np.mean([len(g) for g in groups]))
-    print("nr of groups        ", len([len(g) for g in groups]))
+    if USE_ENTIRE_CORTEX == False:
+        ## If using only visual cortex
+        print("-- visual area glasser regions --")
+        groups = []
+        glasser_indices = np.array(range(len(glasser))) # [0 to 163841]
+        for i in visual_parcel_list:
+            group = glasser_indices[glasser==i]
+            groups.append(group)
+    elif SEPARATE_HEMISPHERES: 
+        print("-- separate hemisphere glasser regions --")
+        ## Separate Glasser regions into hemisphers - 360 regions
+        glasser_lh = glasser_lh.flatten()
+        glasser_rh = glasser_rh.flatten()
+        # Right
+        glasser_indices_rh = np.array(range(len(glasser_rh))) # [0 to 163_841]
+        groups_rh = []
+        for i in set(glasser_rh):
+            groups_rh.append(glasser_indices_rh[glasser_rh == i])
+        # Left 
+        glasser_indices_lh = np.array(range(len(glasser_lh))) # [0 to 163_841]
+        groups_lh = []
+        for i in set(glasser_lh):
+            groups_lh.append(glasser_indices_lh[glasser_lh == i])
+        print("excluding group 0")
+        print("groups_lh:", len(groups_lh[1:]))
+        print("groups_rh:", len(groups_rh[1:]))
+        print("Avg. group size lh:     ", np.mean([len(g) for g in groups_lh[1:]]))
+        print("Avg. group size rh:     ", np.mean([len(g) for g in groups_rh[1:]]))
+        print("max group size lh | rh: ", np.max([len(g) for g in groups_lh[1:]]), np.max([len(g) for g in groups_rh[1:]]))
+        print("min group size lh | rh: ", np.min([len(g) for g in groups_lh[1:]]), np.min([len(g) for g in groups_rh[1:]]))
+        groups = groups_lh[1:] + groups_rh[1:]
+        print("groups: ", len(groups))
+    else:
+        ## If using entire cortex
+        print("-- full cortex glasser regions --")
+        groups = []
+        glasser_indices = np.array(range(len(glasser)))
+        for i in set(glasser):
+            group = glasser_indices[glasser == i]
+            groups.append(group)
+        groups = groups[1:]
+        print("sum of groups sizes:", sum([len(g) for g in groups]))
+        print("Avg. group size:    ", np.mean([len(g) for g in groups]))
+        print("nr of groups        ", len([len(g) for g in groups]))
+
+    return groups
 
 def get_groups(out_dim, separate_hemi=True):
     return groups, [out_dim for i in range(0,len(groups))]
